@@ -4,17 +4,17 @@ import (
 	"math/rand"
 )
 
-type ShortnerService struct {
+type ShortenerService struct {
 	data map[string]string
 }
 
-func NewShortenerService() *ShortnerService {
-	return &ShortnerService{
+func NewShortenerService() *ShortenerService {
+	return &ShortenerService{
 		data: make(map[string]string),
 	}
 }
 
-func (s *ShortnerService) generateShortId() string {
+func (s *ShortenerService) generateShortId() string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	const length = 8
 
@@ -27,7 +27,7 @@ func (s *ShortnerService) generateShortId() string {
 	return string(result)
 }
 
-func (s *ShortnerService) CreateShortUrl(originalUrl string) string {
+func (s *ShortenerService) CreateShortUrl(originalUrl string) string {
 	var shortId string
 	for {
 		shortId = s.generateShortId()
@@ -40,7 +40,7 @@ func (s *ShortnerService) CreateShortUrl(originalUrl string) string {
 	return "http://localhost:8080/" + shortId
 }
 
-func (s *ShortnerService) GetOriginalUrl(shortId string) (string, bool) {
+func (s *ShortenerService) GetOriginalUrl(shortId string) (string, bool) {
 	originalUrl, exists := s.data[shortId]
 	return originalUrl, exists
 }
