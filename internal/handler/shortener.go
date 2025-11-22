@@ -14,10 +14,10 @@ func (h *Handler) ShortenHandler(rw http.ResponseWriter, r *http.Request) {
 
 	defer r.Body.Close()
 
-	originalUrl := string(body)
-	shortUrl := h.service.CreateShortUrl(originalUrl)
+	originalURL := string(body)
+	shortURL := h.service.CreateShortURL(originalURL)
 
 	rw.Header().Set("Content-Type", "text/plain")
 	rw.WriteHeader(http.StatusCreated)
-	rw.Write([]byte(shortUrl))
+	rw.Write([]byte(shortURL))
 }

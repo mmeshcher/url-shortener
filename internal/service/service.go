@@ -14,7 +14,7 @@ func NewShortenerService() *ShortenerService {
 	}
 }
 
-func (s *ShortenerService) generateShortId() string {
+func (s *ShortenerService) GenerateShortID() string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	const length = 8
 
@@ -27,20 +27,20 @@ func (s *ShortenerService) generateShortId() string {
 	return string(result)
 }
 
-func (s *ShortenerService) CreateShortUrl(originalUrl string) string {
-	var shortId string
+func (s *ShortenerService) CreateShortURL(originalURL string) string {
+	var shortID string
 	for {
-		shortId = s.generateShortId()
-		if _, exists := s.data[shortId]; !exists {
+		shortID = s.GenerateShortID()
+		if _, exists := s.data[shortID]; !exists {
 			break
 		}
 	}
 
-	s.data[shortId] = originalUrl
-	return "http://localhost:8080/" + shortId
+	s.data[shortID] = originalURL
+	return "http://localhost:8080/" + shortID
 }
 
-func (s *ShortenerService) GetOriginalUrl(shortId string) (string, bool) {
-	originalUrl, exists := s.data[shortId]
-	return originalUrl, exists
+func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {
+	originalURL, exists := s.data[shortID]
+	return originalURL, exists
 }
