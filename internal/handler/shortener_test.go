@@ -85,7 +85,9 @@ func TestShortenHandler(t *testing.T) {
 			service := service.NewShortenerService()
 			h := NewHandler(service)
 
-			h.HandleRequest(w, request)
+			r := h.SetupRouter()
+
+			r.ServeHTTP(w, request)
 
 			result := w.Result()
 			defer result.Body.Close()
