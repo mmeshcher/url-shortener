@@ -31,7 +31,7 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "positive test",
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string) {
-				service := service.NewShortenerService()
+				service := service.NewShortenerService("http://localhost:8080")
 				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID
@@ -48,7 +48,7 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "negative: non-existent short URL",
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string) {
-				return service.NewShortenerService(), "nonexistent123"
+				return service.NewShortenerService("http://localhost:8080"), "nonexistent123"
 			},
 			want: want{
 				statusCode:  400,
@@ -62,7 +62,7 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "negative: empty short URL",
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string) {
-				return service.NewShortenerService(), ""
+				return service.NewShortenerService("http://localhost:8080"), ""
 			},
 			want: want{
 				statusCode:  400,
@@ -76,7 +76,7 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "negative: wrong method POST",
 			method: http.MethodPost,
 			setup: func() (*service.ShortenerService, string) {
-				service := service.NewShortenerService()
+				service := service.NewShortenerService("http://localhost:8080")
 				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID

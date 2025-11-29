@@ -5,12 +5,14 @@ import (
 )
 
 type ShortenerService struct {
-	data map[string]string
+	data    map[string]string
+	baseURL string
 }
 
-func NewShortenerService() *ShortenerService {
+func NewShortenerService(baseURL string) *ShortenerService {
 	return &ShortenerService{
-		data: make(map[string]string),
+		data:    make(map[string]string),
+		baseURL: baseURL,
 	}
 }
 
@@ -37,7 +39,7 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 	}
 
 	s.data[shortID] = originalURL
-	return "http://localhost:8080/" + shortID
+	return s.baseURL + "/" + shortID
 }
 
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {
