@@ -22,10 +22,10 @@ func ParseFlags() *Config {
 
 func (c *Config) Validate() error {
 	if c.ServerAddress == "" {
-		return fmt.Errorf("Server address cannot be empty")
+		return fmt.Errorf("server address cannot be empty")
 	}
 	if c.BaseURL == "" {
-		return fmt.Errorf("Base URL cannot be empty")
+		return fmt.Errorf("base URL cannot be empty")
 	}
 	return nil
 }
