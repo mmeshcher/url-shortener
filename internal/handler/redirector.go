@@ -9,13 +9,13 @@ import (
 func (h *Handler) RedirectHandler(rw http.ResponseWriter, r *http.Request) {
 	shortURL := chi.URLParam(r, "shortID")
 	if shortURL == "" {
-		http.Error(rw, "Empty short url", http.StatusBadRequest)
+		http.Error(rw, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
 	originalURL, exists := h.service.GetOriginalURL(shortURL)
 	if !exists {
-		http.Error(rw, "Original URL not exists for this short URL", http.StatusBadRequest)
+		http.Error(rw, "Not Found", http.StatusNotFound)
 		return
 	}
 

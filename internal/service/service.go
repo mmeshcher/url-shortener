@@ -1,10 +1,13 @@
 package service
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"encoding/base64"
+	"sync"
 )
 
 type ShortenerService struct {
+	mu      sync.RWMutex
 	data    map[string]string
 	baseURL string
 }
@@ -17,19 +20,16 @@ func NewShortenerService(baseURL string) *ShortenerService {
 }
 
 func (s *ShortenerService) GenerateShortID() string {
-	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	const length = 8
+	bytes := make([]byte, 8)
+	rand.Read(bytes)
 
-	result := make([]byte, length)
-
-	for i := range result {
-		result[i] = chars[rand.Intn(len(chars))]
-	}
-
-	return string(result)
+	return base64.URLEncoding.EncodeToString(bytes)
 }
 
 func (s *ShortenerService) CreateShortURL(originalURL string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var shortID string
 	for {
 		shortID = s.GenerateShortID()
@@ -43,6 +43,9 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 }
 
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	originalURL, exists := s.data[shortID]
 	return originalURL, exists
 }
