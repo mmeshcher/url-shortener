@@ -73,7 +73,7 @@ func TestRedirectHandler(t *testing.T) {
 			},
 		},
 		{
-			name:   "positive test",
+			name:   "negative: wrong method POST",
 			method: http.MethodPost,
 			setup: func() (*service.ShortenerService, string) {
 				service := service.NewShortenerService()
@@ -99,7 +99,9 @@ func TestRedirectHandler(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			h := NewHandler(service)
-			h.HandleRequest(w, request)
+			r := h.SetupRouter()
+
+			r.ServeHTTP(w, request)
 
 			result := w.Result()
 			defer result.Body.Close()

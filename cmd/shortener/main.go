@@ -12,7 +12,7 @@ func main() {
 
 	h := handler.NewHandler(shortnerService)
 
-	http.HandleFunc("/", h.HandleRequest)
+	r := h.SetupRouter()
 
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":8080", r)
 }

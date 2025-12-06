@@ -2,10 +2,12 @@ package handler
 
 import (
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func (h *Handler) RedirectHandler(rw http.ResponseWriter, r *http.Request) {
-	shortURL := r.URL.Path[1:]
+	shortURL := chi.URLParam(r, "shortID")
 	if shortURL == "" {
 		http.Error(rw, "Empty short url", http.StatusBadRequest)
 		return
