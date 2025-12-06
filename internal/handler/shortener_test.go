@@ -1,0 +1,108 @@
+package handler
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"io"
+
+	"github.com/mmeshcher/url-shortener/internal/service"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestShortenHandler(t *testing.T) {
+	type want struct {
+		statusCode  int
+		contentType string
+		body        string
+		checkBody   bool
+	}
+
+	tests := []struct {
+		name    string
+		request string
+		body    string
+		method  string
+		want    want
+	}{
+		{
+			name:    "positive test",
+			request: "/",
+			body:    "https://practicum.yandex.ru/",
+			method:  http.MethodPost,
+			want: want{
+				statusCode:  201,
+				contentType: "text/plain",
+				body:        "http://localhost:8080/",
+				checkBody:   false,
+			},
+		},
+		{
+			name:    "negative: empty body",
+			request: "/",
+			body:    "",
+			method:  http.MethodPost,
+			want: want{
+				statusCode:  400,
+				contentType: "text/plain; charset=utf-8",
+				body:        "Empty body\n",
+				checkBody:   true,
+			},
+		},
+		{
+			name:    "negative: wrong method",
+			request: "/",
+			body:    "https://practicum.yandex.ru/",
+			method:  http.MethodGet,
+			want: want{
+				statusCode:  400,
+				contentType: "text/plain; charset=utf-8",
+				body:        "Bad Request\n",
+				checkBody:   true,
+			},
+		},
+		{
+			name:    "negative: wrong path",
+			request: "/api",
+			body:    "https://practicum.yandex.ru/",
+			method:  http.MethodPost,
+			want: want{
+				statusCode:  400,
+				contentType: "text/plain; charset=utf-8",
+				body:        "Bad Request\n",
+				checkBody:   true,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(tt.method, tt.request, strings.NewReader(tt.body))
+			request.Header.Set("Content-Type", "text/plain")
+			w := httptest.NewRecorder()
+			service := service.NewShortenerService()
+			h := NewHandler(service)
+
+			h.HandleRequest(w, request)
+
+			result := w.Result()
+			defer result.Body.Close()
+
+			assert.Equal(t, tt.want.statusCode, result.StatusCode)
+			assert.Equal(t, tt.want.contentType, result.Header.Get("Content-Type"))
+
+			bodyResult, err := io.ReadAll(result.Body)
+			require.NoError(t, err)
+			bodyStr := string(bodyResult)
+
+			if tt.want.checkBody {
+				assert.Equal(t, tt.want.body, bodyStr)
+			} else {
+				assert.Contains(t, bodyStr, tt.want.body)
+				assert.Greater(t, len(bodyStr), len(tt.want.body))
+			}
+		})
+	}
+}
