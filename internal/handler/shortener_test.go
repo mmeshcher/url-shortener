@@ -58,9 +58,9 @@ func TestShortenHandler(t *testing.T) {
 			body:    "https://practicum.yandex.ru/",
 			method:  http.MethodGet,
 			want: want{
-				statusCode:  400,
+				statusCode:  405,
 				contentType: "text/plain; charset=utf-8",
-				body:        "Bad Request\n",
+				body:        "Method Not Allowed\n",
 				checkBody:   true,
 			},
 		},
@@ -68,11 +68,11 @@ func TestShortenHandler(t *testing.T) {
 			name:    "negative: wrong path",
 			request: "/api",
 			body:    "https://practicum.yandex.ru/",
-			method:  http.MethodPost,
+			method:  http.MethodGet,
 			want: want{
-				statusCode:  400,
+				statusCode:  404,
 				contentType: "text/plain; charset=utf-8",
-				body:        "Bad Request\n",
+				body:        "Not Found\n",
 				checkBody:   true,
 			},
 		},
@@ -82,7 +82,7 @@ func TestShortenHandler(t *testing.T) {
 			request := httptest.NewRequest(tt.method, tt.request, strings.NewReader(tt.body))
 			request.Header.Set("Content-Type", "text/plain")
 			w := httptest.NewRecorder()
-			service := service.NewShortenerService()
+			service := service.NewShortenerService("http://localhost:8080")
 			h := NewHandler(service)
 
 			r := h.SetupRouter()

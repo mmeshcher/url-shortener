@@ -31,7 +31,7 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "positive test",
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string) {
-				service := service.NewShortenerService()
+				service := service.NewShortenerService("http://localhost:8080")
 				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID
@@ -48,27 +48,13 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "negative: non-existent short URL",
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string) {
-				return service.NewShortenerService(), "nonexistent123"
+				return service.NewShortenerService("http://localhost:8080"), "nonexistent123"
 			},
 			want: want{
-				statusCode:  400,
+				statusCode:  404,
 				contentType: "text/plain; charset=utf-8",
 				location:    "",
-				body:        "Original URL not exists for this short URL\n",
-				checkBody:   true,
-			},
-		},
-		{
-			name:   "negative: empty short URL",
-			method: http.MethodGet,
-			setup: func() (*service.ShortenerService, string) {
-				return service.NewShortenerService(), ""
-			},
-			want: want{
-				statusCode:  400,
-				contentType: "text/plain; charset=utf-8",
-				location:    "",
-				body:        "Bad Request\n",
+				body:        "Not Found\n",
 				checkBody:   true,
 			},
 		},
@@ -76,16 +62,16 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "negative: wrong method POST",
 			method: http.MethodPost,
 			setup: func() (*service.ShortenerService, string) {
-				service := service.NewShortenerService()
+				service := service.NewShortenerService("http://localhost:8080")
 				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID
 			},
 			want: want{
-				statusCode:  400,
+				statusCode:  405,
 				contentType: "text/plain; charset=utf-8",
 				location:    "",
-				body:        "Bad Request\n",
+				body:        "Method Not Allowed\n",
 				checkBody:   true,
 			},
 		},

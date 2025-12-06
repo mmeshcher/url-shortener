@@ -1,33 +1,35 @@
 package service
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"encoding/base64"
+	"sync"
 )
 
 type ShortenerService struct {
-	data map[string]string
+	mu      sync.RWMutex
+	data    map[string]string
+	baseURL string
 }
 
-func NewShortenerService() *ShortenerService {
+func NewShortenerService(baseURL string) *ShortenerService {
 	return &ShortenerService{
-		data: make(map[string]string),
+		data:    make(map[string]string),
+		baseURL: baseURL,
 	}
 }
 
 func (s *ShortenerService) GenerateShortID() string {
-	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	const length = 8
+	bytes := make([]byte, 8)
+	rand.Read(bytes)
 
-	result := make([]byte, length)
-
-	for i := range result {
-		result[i] = chars[rand.Intn(len(chars))]
-	}
-
-	return string(result)
+	return base64.URLEncoding.EncodeToString(bytes)
 }
 
 func (s *ShortenerService) CreateShortURL(originalURL string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var shortID string
 	for {
 		shortID = s.GenerateShortID()
@@ -37,10 +39,13 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 	}
 
 	s.data[shortID] = originalURL
-	return "http://localhost:8080/" + shortID
+	return s.baseURL + "/" + shortID
 }
 
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	originalURL, exists := s.data[shortID]
 	return originalURL, exists
 }

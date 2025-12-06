@@ -19,16 +19,13 @@ func (h *Handler) SetupRouter() *chi.Mux {
 		})
 	})
 
-	r.NotFound(h.NotFoundHandler)
-	r.MethodNotAllowed(h.MethodNotAllowedHandler)
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Not Found", http.StatusNotFound)
+	})
+
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	})
 
 	return r
-}
-
-func (h *Handler) NotFoundHandler(rw http.ResponseWriter, r *http.Request) {
-	http.Error(rw, "Bad Request", http.StatusBadRequest)
-}
-
-func (h *Handler) MethodNotAllowedHandler(rw http.ResponseWriter, r *http.Request) {
-	http.Error(rw, "Bad Request", http.StatusBadRequest)
 }
