@@ -10,7 +10,10 @@ import (
 )
 
 func main() {
-	cfg := config.ParseFlags()
+	cfg, err := config.ParseFlags()
+	if err != nil {
+		log.Fatalf("Configuration error: %v", err)
+	}
 
 	log.Printf("Starting server with config: address=%s, baseURL=%s",
 		cfg.ServerAddress, cfg.BaseURL)
