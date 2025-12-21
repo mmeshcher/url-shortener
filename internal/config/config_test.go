@@ -28,7 +28,7 @@ func TestParseConfig(t *testing.T) {
 			flags:   []string{},
 			want: want{
 				serverAddress: "localhost:8080",
-				baseURL:       "http://localhost:8080/",
+				baseURL:       "http://localhost:8080",
 				shouldError:   false,
 			},
 		},
@@ -41,7 +41,7 @@ func TestParseConfig(t *testing.T) {
 			flags: []string{},
 			want: want{
 				serverAddress: "localhost:8888",
-				baseURL:       "http://example.com/",
+				baseURL:       "http://example.com",
 				shouldError:   false,
 			},
 		},
@@ -51,7 +51,7 @@ func TestParseConfig(t *testing.T) {
 			flags:   []string{"-a", "localhost:9999", "-b", "http://myserver.com"},
 			want: want{
 				serverAddress: "localhost:9999",
-				baseURL:       "http://myserver.com/",
+				baseURL:       "http://myserver.com",
 				shouldError:   false,
 			},
 		},
@@ -64,7 +64,7 @@ func TestParseConfig(t *testing.T) {
 			flags: []string{"-a", "flag-server:8888", "-b", "http://flag-url.com"},
 			want: want{
 				serverAddress: "env-server:7777",
-				baseURL:       "http://env-url.com/",
+				baseURL:       "http://env-url.com",
 				shouldError:   false,
 			},
 		},
@@ -77,7 +77,7 @@ func TestParseConfig(t *testing.T) {
 			flags: []string{"-a", "", "-b", ""},
 			want: want{
 				serverAddress: "localhost:8080",
-				baseURL:       "http://localhost:8080/",
+				baseURL:       "http://localhost:8080",
 				shouldError:   false,
 			},
 		},

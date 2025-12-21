@@ -3,7 +3,6 @@ package config
 import (
 	"flag"
 	"fmt"
-	"strings"
 
 	"github.com/caarlos0/env/v6"
 )
@@ -36,10 +35,6 @@ func ParseFlags() (*Config, error) {
 	}
 
 	cfg.applyDefaultValues()
-
-	if !strings.HasSuffix(cfg.BaseURL, "/") {
-		cfg.BaseURL += "/"
-	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
