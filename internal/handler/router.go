@@ -4,13 +4,19 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	custommiddleware "github.com/mmeshcher/url-shortener/internal/middleware"
+	"go.uber.org/zap"
 )
 
-func (h *Handler) SetupRouter() *chi.Mux {
+func (h *Handler) SetupRouter(logger *zap.Logger) *chi.Mux {
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
+	if logger != nil {
+		r.Use(custommiddleware.Logger(logger))
+	} else {
+		r.Use(chimiddleware.Logger)
+	}
 
 	r.Route("/", func(r chi.Router) {
 		r.Post("/", h.ShortenHandler)
