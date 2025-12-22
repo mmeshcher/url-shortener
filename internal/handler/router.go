@@ -23,6 +23,11 @@ func (h *Handler) SetupRouter(logger *zap.Logger) *chi.Mux {
 		r.Route("/{shortID}", func(r chi.Router) {
 			r.Get("/", h.RedirectHandler)
 		})
+		r.Route("/api", func(r chi.Router) {
+			r.Route("/shorten", func(r chi.Router) {
+				r.Post("/", h.APIShortenHandler)
+			})
+		})
 	})
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
