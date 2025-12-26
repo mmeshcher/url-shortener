@@ -12,6 +12,8 @@ import (
 func (h *Handler) SetupRouter(logger *zap.Logger) *chi.Mux {
 	r := chi.NewRouter()
 
+	r.Use(custommiddleware.GzipMiddleware)
+
 	if logger != nil {
 		r.Use(custommiddleware.Logger(logger))
 	} else {
