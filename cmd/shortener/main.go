@@ -35,6 +35,7 @@ func main() {
 		"Configuration loaded",
 		"server_address", cfg.ServerAddress,
 		"base_url", cfg.BaseURL,
+		"file_storage_path", cfg.FileStoragePath,
 	)
 	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath)
 

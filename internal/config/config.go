@@ -22,6 +22,7 @@ func ParseFlags() (*Config, error) {
 
 	envServerAddress := cfg.ServerAddress
 	envBaseURL := cfg.BaseURL
+	envFileStoragePath := cfg.FileStoragePath
 
 	flag.StringVar(&cfg.ServerAddress, "a", "localhost:8080", "Address of the server")
 	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "Base URL for short URLs")
@@ -34,6 +35,9 @@ func ParseFlags() (*Config, error) {
 	}
 	if envBaseURL != "" {
 		cfg.BaseURL = envBaseURL
+	}
+	if envFileStoragePath != "" {
+		cfg.FileStoragePath = envFileStoragePath
 	}
 
 	cfg.applyDefaultValues()
@@ -51,6 +55,9 @@ func (c *Config) Validate() error {
 	}
 	if c.BaseURL == "" {
 		return fmt.Errorf("base URL cannot be empty")
+	}
+	if c.FileStoragePath == "" {
+		return fmt.Errorf("file storage path cannot be empty")
 	}
 	return nil
 }
