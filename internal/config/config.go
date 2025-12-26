@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	ServerAddress string `env:"SERVER_ADDRESS"`
-	BaseURL       string `env:"BASE_URL"`
+	ServerAddress   string `env:"SERVER_ADDRESS"`
+	BaseURL         string `env:"BASE_URL"`
+	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 }
 
 func ParseFlags() (*Config, error) {
@@ -24,6 +25,7 @@ func ParseFlags() (*Config, error) {
 
 	flag.StringVar(&cfg.ServerAddress, "a", "localhost:8080", "Address of the server")
 	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "Base URL for short URLs")
+	flag.StringVar(&cfg.FileStoragePath, "f", "url_storage.json", "Path to file storage")
 
 	flag.Parse()
 
@@ -61,6 +63,10 @@ func (c *Config) applyDefaultValues() {
 	if c.BaseURL == "" {
 		c.BaseURL = getDefaultBaseURL()
 	}
+
+	if c.FileStoragePath == "" {
+		c.FileStoragePath = getDefaultFileStoragePath()
+	}
 }
 
 func getDefaultServerAddress() string {
@@ -69,4 +75,8 @@ func getDefaultServerAddress() string {
 
 func getDefaultBaseURL() string {
 	return "http://localhost:8080"
+}
+
+func getDefaultFileStoragePath() string {
+	return "url_storage.json"
 }

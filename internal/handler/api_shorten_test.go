@@ -99,7 +99,7 @@ func TestAPIShortenHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := service.NewShortenerService("http://localhost:8080")
+			service := service.NewShortenerService("http://localhost:8080", "")
 			h := NewHandler(service)
 			logger := zap.NewNop()
 			router := h.SetupRouter(logger)
