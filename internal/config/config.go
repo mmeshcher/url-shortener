@@ -25,7 +25,7 @@ func ParseFlags() (*Config, error) {
 
 	flag.StringVar(&cfg.ServerAddress, "a", "localhost:8080", "Address of the server")
 	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "Base URL for short URLs")
-	flag.StringVar(&cfg.FileStoragePath, "f", "url_storage.json", "Path to file storage")
+	flag.StringVar(&cfg.FileStoragePath, "file-storage-path", "url_storage.json", "Path to file storage")
 
 	flag.Parse()
 
