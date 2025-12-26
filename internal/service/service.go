@@ -22,20 +22,18 @@ type ShortenerService struct {
 func NewShortenerService(baseURL, storagePath string) *ShortenerService {
 	service := &ShortenerService{
 		data:        make(map[string]string),
-		baseURL:     baseURL,
 		reverseData: make(map[string]string),
+		baseURL:     baseURL,
 		storagePath: storagePath,
 	}
 
 	service.loadFromFile()
-
 	return service
 }
 
 func (s *ShortenerService) GenerateShortID() string {
 	bytes := make([]byte, 8)
 	rand.Read(bytes)
-
 	return base64.URLEncoding.EncodeToString(bytes)
 }
 
@@ -58,7 +56,9 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 	s.data[shortID] = originalURL
 	s.reverseData[originalURL] = shortID
 
-	s.saveToFile()
+	go func() {
+		s.saveToFile()
+	}()
 
 	return s.baseURL + "/" + shortID
 }
@@ -77,29 +77,31 @@ func (s *ShortenerService) saveToFile() {
 	}
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	records := make([]models.URLRecord, 0, len(s.data))
-
-	for shortID, originalURL := range s.data {
-		record := models.URLRecord{
-			UUID:        generateUUID(),
-			ShortURL:    shortID,
-			OriginalURL: originalURL,
-		}
-		records = append(records, record)
+	data := make(map[string]string, len(s.data))
+	for k, v := range s.data {
+		data[k] = v
 	}
+	s.mu.RUnlock()
 
-	data, err := json.MarshalIndent(records, "", "  ")
-	if err != nil {
-		fmt.Printf("Error marshaling data: %v\n", err)
+	if len(data) == 0 {
 		return
 	}
 
-	err = os.WriteFile(s.storagePath, data, 0644)
-	if err != nil {
-		fmt.Printf("Error writing to file %s: %v\n", s.storagePath, err)
+	records := make([]models.URLRecord, 0, len(data))
+	for shortID, originalURL := range data {
+		records = append(records, models.URLRecord{
+			UUID:        generateUUID(),
+			ShortURL:    shortID,
+			OriginalURL: originalURL,
+		})
 	}
+
+	jsonData, err := json.MarshalIndent(records, "", "  ")
+	if err != nil {
+		return
+	}
+
+	os.WriteFile(s.storagePath, jsonData, 0644)
 }
 
 func (s *ShortenerService) loadFromFile() {
@@ -107,20 +109,19 @@ func (s *ShortenerService) loadFromFile() {
 		return
 	}
 
-	if _, err := os.Stat(s.storagePath); os.IsNotExist(err) {
+	file, err := os.Open(s.storagePath)
+	if err != nil {
 		return
 	}
+	defer file.Close()
 
 	data, err := os.ReadFile(s.storagePath)
 	if err != nil {
-		fmt.Printf("Error reading file %s: %v\n", s.storagePath, err)
 		return
 	}
 
 	var records []models.URLRecord
-	err = json.Unmarshal(data, &records)
-	if err != nil {
-		fmt.Printf("Error unmarshaling data from %s: %v\n", s.storagePath, err)
+	if json.Unmarshal(data, &records) != nil {
 		return
 	}
 
@@ -130,8 +131,6 @@ func (s *ShortenerService) loadFromFile() {
 		s.reverseData[record.OriginalURL] = record.ShortURL
 	}
 	s.mu.Unlock()
-
-	fmt.Printf("Loaded %d URL records from %s\n", len(records), s.storagePath)
 }
 
 func generateUUID() string {
