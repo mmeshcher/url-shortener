@@ -42,24 +42,7 @@ func ParseFlags() (*Config, error) {
 
 	cfg.applyDefaultValues()
 
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
 	return cfg, nil
-}
-
-func (c *Config) Validate() error {
-	if c.ServerAddress == "" {
-		return fmt.Errorf("server address cannot be empty")
-	}
-	if c.BaseURL == "" {
-		return fmt.Errorf("base URL cannot be empty")
-	}
-	if c.FileStoragePath == "" {
-		return fmt.Errorf("file storage path cannot be empty")
-	}
-	return nil
 }
 
 func (c *Config) applyDefaultValues() {

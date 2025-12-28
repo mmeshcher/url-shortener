@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestAPIShortenHandler(t *testing.T) {
+func TestShortenJSONHandler(t *testing.T) {
 	type want struct {
 		statusCode  int
 		contentType string
@@ -99,10 +99,10 @@ func TestAPIShortenHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := service.NewShortenerService("http://localhost:8080", "")
-			h := NewHandler(service)
 			logger := zap.NewNop()
-			router := h.SetupRouter(logger)
+			service := service.NewShortenerService("http://localhost:8080", "", logger)
+			h := NewHandler(service, logger)
+			router := h.SetupRouter()
 
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 
@@ -131,7 +131,8 @@ func TestAPIShortenHandler(t *testing.T) {
 			}
 
 			if tt.want.checkError {
-				bodyBytes, _ := io.ReadAll(result.Body)
+				bodyBytes, err := io.ReadAll(result.Body)
+				require.NoError(t, err)
 				assert.NotEmpty(t, string(bodyBytes))
 			}
 		})

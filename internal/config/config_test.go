@@ -85,11 +85,10 @@ func TestParseConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 			for key, value := range tt.envVars {
-				os.Setenv(key, value)
+				t.Setenv(key, value)
 			}
 
 			os.Args = append([]string{"test"}, tt.flags...)
@@ -101,12 +100,12 @@ func TestParseConfig(t *testing.T) {
 				assert.Contains(t, err.Error(), "cannot be empty")
 			} else {
 				require.NoError(t, err, "unexpected error")
-
-				assert.Equal(t, tt.want.serverAddress, cfg.ServerAddress,
-					"server address mismatch")
-				assert.Equal(t, tt.want.baseURL, cfg.BaseURL,
-					"base URL mismatch")
 			}
+
+			assert.Equal(t, tt.want.serverAddress, cfg.ServerAddress,
+				"server address mismatch")
+			assert.Equal(t, tt.want.baseURL, cfg.BaseURL,
+				"base URL mismatch")
 		})
 	}
 }

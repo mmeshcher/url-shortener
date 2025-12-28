@@ -5,17 +5,13 @@ import (
 	"net/http"
 
 	"github.com/mmeshcher/url-shortener/internal/models"
+	"go.uber.org/zap"
 )
 
-func (h *Handler) APIShortenHandler(rw http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(rw, "MethodNotAllowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-Type")
 	if contentType != "application/json" {
-		http.Error(rw, "Content-Type must be application/json", http.StatusBadRequest)
+		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
@@ -24,16 +20,21 @@ func (h *Handler) APIShortenHandler(rw http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(&req); err != nil {
-		http.Error(rw, "Invalid JSON", http.StatusBadRequest)
+		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	if req.URL == "" {
-		http.Error(rw, "URL cannot be empty", http.StatusBadRequest)
+		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	shortURL := h.service.CreateShortURL(req.URL)
+	if shortURL == "" {
+		h.logger.Error("Failed to create short URL")
+		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
 
 	resp := models.ShortenResponse{
 		Result: shortURL,
@@ -44,7 +45,8 @@ func (h *Handler) APIShortenHandler(rw http.ResponseWriter, r *http.Request) {
 
 	encoder := json.NewEncoder(rw)
 	if err := encoder.Encode(resp); err != nil {
-		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		h.logger.Error("Failed to encode response", zap.Error(err))
+		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 }

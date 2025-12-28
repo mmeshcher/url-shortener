@@ -32,7 +32,8 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "positive test",
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string) {
-				service := service.NewShortenerService("http://localhost:8080", "")
+				logger := zap.NewNop()
+				service := service.NewShortenerService("http://localhost:8080", "", logger)
 				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID
@@ -49,7 +50,8 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "negative: non-existent short URL",
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string) {
-				return service.NewShortenerService("http://localhost:8080", ""), "nonexistent123"
+				logger := zap.NewNop()
+				return service.NewShortenerService("http://localhost:8080", "", logger), "nonexistent123"
 			},
 			want: want{
 				statusCode:  404,
@@ -63,7 +65,8 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "negative: wrong method POST",
 			method: http.MethodPost,
 			setup: func() (*service.ShortenerService, string) {
-				service := service.NewShortenerService("http://localhost:8080", "")
+				logger := zap.NewNop()
+				service := service.NewShortenerService("http://localhost:8080", "", logger)
 				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID
@@ -84,11 +87,10 @@ func TestRedirectHandler(t *testing.T) {
 
 			request := httptest.NewRequest(tt.method, "/"+shortID, nil)
 			w := httptest.NewRecorder()
-
-			h := NewHandler(service)
-
 			logger := zap.NewNop()
-			r := h.SetupRouter(logger)
+
+			h := NewHandler(service, logger)
+			r := h.SetupRouter()
 
 			r.ServeHTTP(w, request)
 

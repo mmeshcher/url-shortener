@@ -10,16 +10,14 @@ import (
 	"github.com/mmeshcher/url-shortener/internal/service"
 )
 
-var sugar *zap.SugaredLogger
-
 func main() {
 	logger, err := zap.NewDevelopment()
 	if err != nil {
-		panic(err)
+		logger.Fatal("Failed to create logger", zap.Error(err))
 	}
 	defer logger.Sync()
 
-	sugar = logger.Sugar()
+	sugar := logger.Sugar()
 
 	sugar.Infow(
 		"Starting URL shortener service",
@@ -37,11 +35,11 @@ func main() {
 		"base_url", cfg.BaseURL,
 		"file_storage_path", cfg.FileStoragePath,
 	)
-	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath)
+	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath, logger)
 
-	h := handler.NewHandler(shortnerService)
+	h := handler.NewHandler(shortnerService, logger)
 
-	r := h.SetupRouter(logger)
+	r := h.SetupRouter()
 
 	sugar.Infow(
 		"Server starting",

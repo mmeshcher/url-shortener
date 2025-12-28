@@ -4,27 +4,32 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
+	"net/url"
 	"os"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/mmeshcher/url-shortener/internal/models"
+	"go.uber.org/zap"
 )
 
 type ShortenerService struct {
 	mu          sync.RWMutex
+	saveMu      sync.Mutex
 	data        map[string]string
 	reverseData map[string]string
 	baseURL     string
 	storagePath string
+	logger      *zap.Logger
 }
 
-func NewShortenerService(baseURL, storagePath string) *ShortenerService {
+func NewShortenerService(baseURL, storagePath string, logger *zap.Logger) *ShortenerService {
 	service := &ShortenerService{
 		data:        make(map[string]string),
 		reverseData: make(map[string]string),
 		baseURL:     baseURL,
 		storagePath: storagePath,
+		logger:      logger,
 	}
 
 	service.loadFromFile()
@@ -38,19 +43,38 @@ func (s *ShortenerService) GenerateShortID() string {
 }
 
 func (s *ShortenerService) CreateShortURL(originalURL string) string {
+	if originalURL == "" {
+		s.logger.Warn("Attempt to create short URL for empty string")
+		return ""
+	}
+
+	if _, err := url.ParseRequestURI(originalURL); err != nil {
+		s.logger.Warn("Invalid URL provided", zap.String("url", originalURL), zap.Error(err))
+		return ""
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if shortID, exists := s.reverseData[originalURL]; exists {
-		return s.baseURL + "/" + shortID
+		fullURL, _ := url.JoinPath(s.baseURL, shortID)
+		return fullURL
 	}
 
+	const maxAttempts = 10
 	var shortID string
-	for {
+	var attempts int
+
+	for attempts = 0; attempts < maxAttempts; attempts++ {
 		shortID = s.GenerateShortID()
 		if _, exists := s.data[shortID]; !exists {
 			break
 		}
+	}
+
+	if attempts == maxAttempts {
+		s.logger.Error("Failed to generate unique short ID after max attempts")
+		return ""
 	}
 
 	s.data[shortID] = originalURL
@@ -60,7 +84,8 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 		s.saveToFile()
 	}()
 
-	return s.baseURL + "/" + shortID
+	fullURL, _ := url.JoinPath(s.baseURL, shortID)
+	return fullURL
 }
 
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {
@@ -76,6 +101,9 @@ func (s *ShortenerService) saveToFile() {
 		return
 	}
 
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
 	s.mu.RLock()
 	data := make(map[string]string, len(s.data))
 	for k, v := range s.data {
@@ -90,7 +118,7 @@ func (s *ShortenerService) saveToFile() {
 	records := make([]models.URLRecord, 0, len(data))
 	for shortID, originalURL := range data {
 		records = append(records, models.URLRecord{
-			UUID:        generateUUID(),
+			UUID:        uuid.New().String(),
 			ShortURL:    shortID,
 			OriginalURL: originalURL,
 		})
@@ -98,6 +126,7 @@ func (s *ShortenerService) saveToFile() {
 
 	jsonData, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
+		s.logger.Error("Failed to marshal data for saving", zap.Error(err))
 		return
 	}
 
@@ -117,11 +146,13 @@ func (s *ShortenerService) loadFromFile() {
 
 	data, err := os.ReadFile(s.storagePath)
 	if err != nil {
+		s.logger.Error("Failed to read storage file", zap.Error(err))
 		return
 	}
 
 	var records []models.URLRecord
 	if json.Unmarshal(data, &records) != nil {
+		s.logger.Error("Failed to parse storage file", zap.Error(err))
 		return
 	}
 
@@ -131,15 +162,4 @@ func (s *ShortenerService) loadFromFile() {
 		s.reverseData[record.OriginalURL] = record.ShortURL
 	}
 	s.mu.Unlock()
-}
-
-func generateUUID() string {
-	bytes := make([]byte, 16)
-	rand.Read(bytes)
-
-	bytes[6] = (bytes[6] & 0x0f) | 0x40
-	bytes[8] = (bytes[8] & 0x3f) | 0x80
-
-	return fmt.Sprintf("%x-%x-%x-%x-%x",
-		bytes[0:4], bytes[4:6], bytes[6:8], bytes[8:10], bytes[10:])
 }
