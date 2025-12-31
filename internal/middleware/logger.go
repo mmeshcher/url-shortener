@@ -29,7 +29,7 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 }
 
 func WithLogging(logger *zap.Logger, h http.Handler) http.Handler {
-	logFn := func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger.Info("Request received",
 			zap.String("type", "request"),
 			zap.String("uri", r.RequestURI),
@@ -58,9 +58,7 @@ func WithLogging(logger *zap.Logger, h http.Handler) http.Handler {
 			zap.Int("size", responseData.size),
 			zap.Duration("duration", duration),
 		)
-	}
-
-	return http.HandlerFunc(logFn)
+	})
 }
 
 func Logger(logger *zap.Logger) func(next http.Handler) http.Handler {
