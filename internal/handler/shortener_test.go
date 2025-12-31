@@ -11,6 +11,7 @@ import (
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestShortenHandler(t *testing.T) {
@@ -85,7 +86,8 @@ func TestShortenHandler(t *testing.T) {
 			service := service.NewShortenerService("http://localhost:8080")
 			h := NewHandler(service)
 
-			r := h.SetupRouter()
+			logger := zap.NewNop()
+			r := h.SetupRouter(logger)
 
 			r.ServeHTTP(w, request)
 

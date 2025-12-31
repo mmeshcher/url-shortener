@@ -10,6 +10,7 @@ import (
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestRedirectHandler(t *testing.T) {
@@ -85,7 +86,9 @@ func TestRedirectHandler(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			h := NewHandler(service)
-			r := h.SetupRouter()
+
+			logger := zap.NewNop()
+			r := h.SetupRouter(logger)
 
 			r.ServeHTTP(w, request)
 
