@@ -15,6 +15,7 @@ func (h *Handler) SetupRouter() *chi.Mux {
 
 	r.Route("/", func(r chi.Router) {
 		r.Post("/", h.ShortenHandler)
+		r.Get("/ping", h.PingHandler)
 		r.Route("/{shortID}", func(r chi.Router) {
 			r.Get("/", h.RedirectHandler)
 		})

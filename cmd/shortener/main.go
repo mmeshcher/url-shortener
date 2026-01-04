@@ -34,8 +34,9 @@ func main() {
 		"server_address", cfg.ServerAddress,
 		"base_url", cfg.BaseURL,
 		"file_storage_path", cfg.FileStoragePath,
+		"using_database", cfg.DatabaseDSN != "",
 	)
-	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath, logger)
+	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath, logger, cfg.DatabaseDSN)
 
 	h := handler.NewHandler(shortnerService, logger)
 

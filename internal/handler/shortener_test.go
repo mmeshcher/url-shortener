@@ -84,7 +84,7 @@ func TestShortenHandler(t *testing.T) {
 			request.Header.Set("Content-Type", "text/plain")
 			w := httptest.NewRecorder()
 			logger := zap.NewNop()
-			service := service.NewShortenerService("http://localhost:8080", "", logger)
+			service := service.NewShortenerService("http://localhost:8080", "", logger, "")
 			h := NewHandler(service, logger)
 			r := h.SetupRouter()
 

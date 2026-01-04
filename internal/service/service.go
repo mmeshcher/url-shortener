@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mmeshcher/url-shortener/internal/models"
+	"github.com/mmeshcher/url-shortener/internal/repository"
 	"go.uber.org/zap"
 )
 
@@ -21,18 +23,33 @@ type ShortenerService struct {
 	baseURL     string
 	storagePath string
 	logger      *zap.Logger
+	pgRepo      *repository.PostgresRepository
+	useDB       bool
 }
 
-func NewShortenerService(baseURL, storagePath string, logger *zap.Logger) *ShortenerService {
+func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databaseDSN string) *ShortenerService {
 	service := &ShortenerService{
 		data:        make(map[string]string),
 		reverseData: make(map[string]string),
 		baseURL:     baseURL,
 		storagePath: storagePath,
 		logger:      logger,
+		useDB:       databaseDSN != "",
 	}
 
-	service.loadFromFile()
+	if service.useDB {
+		pgRepo, err := repository.NewPostgresRepository(databaseDSN)
+		if err != nil {
+			logger.Error("Failed to connect to PostgreSQL, using file storage", zap.Error(err))
+			service.useDB = false
+			service.loadFromFile()
+		} else {
+			service.pgRepo = pgRepo
+			logger.Info("Using PostgreSQL repository")
+		}
+	} else {
+		service.loadFromFile()
+	}
 	return service
 }
 
@@ -51,6 +68,24 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 	if _, err := url.ParseRequestURI(originalURL); err != nil {
 		s.logger.Warn("Invalid URL provided", zap.String("url", originalURL), zap.Error(err))
 		return ""
+	}
+
+	if s.useDB && s.pgRepo != nil {
+		ctx := context.Background()
+		if existingID, err := s.pgRepo.GetShortID(ctx, originalURL); err == nil {
+			fullURL, _ := url.JoinPath(s.baseURL, existingID)
+			return fullURL
+		}
+
+		shortID := s.GenerateShortID()
+
+		if err := s.pgRepo.SaveURL(ctx, shortID, originalURL); err != nil {
+			s.logger.Error("Failed to save URL to database", zap.Error(err))
+			return ""
+		}
+
+		fullURL, _ := url.JoinPath(s.baseURL, shortID)
+		return fullURL
 	}
 
 	s.mu.Lock()
@@ -89,11 +124,29 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 }
 
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {
+	if s.useDB && s.pgRepo != nil {
+		ctx := context.Background()
+		originalURL, err := s.pgRepo.GetOriginalURL(ctx, shortID)
+		if err != nil {
+			return "", false
+		}
+		return originalURL, true
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	originalURL, exists := s.data[shortID]
 	return originalURL, exists
+}
+
+func (s *ShortenerService) Ping() error {
+	if s.useDB && s.pgRepo != nil {
+		ctx := context.Background()
+		return s.pgRepo.Ping(ctx)
+	}
+
+	return nil
 }
 
 func (s *ShortenerService) saveToFile() {
