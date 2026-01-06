@@ -42,21 +42,24 @@ func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databa
 		if err != nil {
 			logger.Error("Failed to connect to PostgreSQL, using file storage", zap.Error(err))
 			service.useDB = false
-			service.loadFromFile()
 		} else {
 			service.pgRepo = pgRepo
 			logger.Info("Using PostgreSQL repository")
+			return service
 		}
-	} else {
+	}
+
+	if storagePath != "" {
 		service.loadFromFile()
 	}
+
 	return service
 }
 
 func (s *ShortenerService) GenerateShortID() string {
 	bytes := make([]byte, 8)
 	rand.Read(bytes)
-	return base64.URLEncoding.EncodeToString(bytes)
+	return base64.URLEncoding.EncodeToString(bytes)[:8]
 }
 
 func (s *ShortenerService) CreateShortURL(originalURL string) string {

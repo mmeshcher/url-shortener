@@ -2,10 +2,16 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type PostgresRepository struct {
@@ -21,6 +27,10 @@ func NewPostgresRepository(dsn string) (*PostgresRepository, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	if err := runMigrations(dsn); err != nil {
+		return nil, fmt.Errorf("migrations failed: %w", err)
+	}
+
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)
@@ -30,26 +40,41 @@ func NewPostgresRepository(dsn string) (*PostgresRepository, error) {
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
-	if err := createTables(ctx, pool); err != nil {
-		return nil, fmt.Errorf("create tables: %w", err)
-	}
+	log.Println("PostgreSQL repository initialized successfully")
 
 	return &PostgresRepository{pool: pool}, nil
 }
 
-func createTables(ctx context.Context, pool *pgxpool.Pool) error {
-	query := `
-	CREATE TABLE IF NOT EXISTS urls (
-		id VARCHAR(10) PRIMARY KEY,
-		original_url TEXT NOT NULL UNIQUE,
-		created_at TIMESTAMP DEFAULT NOW()
-	);
-	
-	CREATE INDEX IF NOT EXISTS idx_original_url ON urls(original_url);
-	`
+func runMigrations(dsn string) error {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return fmt.Errorf("open database for migrations: %w", err)
+	}
+	defer db.Close()
 
-	_, err := pool.Exec(ctx, query)
-	return err
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("ping database for migrations: %w", err)
+	}
+
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	if err != nil {
+		return fmt.Errorf("create migration driver: %w", err)
+	}
+
+	m, err := migrate.NewWithDatabaseInstance(
+		"file://migrations",
+		"postgres", driver,
+	)
+	if err != nil {
+		return fmt.Errorf("create migrator: %w", err)
+	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("apply migrations: %w", err)
+	}
+
+	log.Println("Migrations applied successfully")
+	return nil
 }
 
 func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL string) error {
