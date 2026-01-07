@@ -122,22 +122,91 @@ func (p *PostgresRepository) Close() error {
 	return nil
 }
 
-func (p *PostgresRepository) SaveURLBatch(ctx context.Context, urls map[string]string) error {
+func (p *PostgresRepository) ProcessURLBatch(ctx context.Context, batch []BatchItem) (map[string]string, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
+		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
+	originalURLs := make([]string, len(batch))
+	for i, item := range batch {
+		originalURLs[i] = item.OriginalURL
+	}
+
+	existingURLs, err := p.getExistingURLsInTransaction(ctx, tx, originalURLs)
+	if err != nil {
+		return nil, fmt.Errorf("get existing urls: %w", err)
+	}
+
+	result := make(map[string]string)
+	urlsToInsert := make([]BatchItem, 0)
+
+	for _, item := range batch {
+		if shortID, exists := existingURLs[item.OriginalURL]; exists {
+			result[item.OriginalURL] = shortID
+		} else {
+			urlsToInsert = append(urlsToInsert, item)
+			result[item.OriginalURL] = item.ShortID
+		}
+	}
+
+	if len(urlsToInsert) > 0 {
+		if err := p.insertURLsInTransaction(ctx, tx, urlsToInsert); err != nil {
+			return nil, fmt.Errorf("insert urls: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return result, nil
+}
+
+func (p *PostgresRepository) getExistingURLsInTransaction(ctx context.Context, tx pgx.Tx, originalURLs []string) (map[string]string, error) {
+	if len(originalURLs) == 0 {
+		return make(map[string]string), nil
+	}
+
+	existing := make(map[string]string)
+
+	query := `SELECT id, original_url FROM urls WHERE original_url = ANY($1)`
+	rows, err := tx.Query(ctx, query, originalURLs)
+	if err != nil {
+		return nil, fmt.Errorf("query existing urls: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var shortID, originalURL string
+		if err := rows.Scan(&shortID, &originalURL); err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+		existing[originalURL] = shortID
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return existing, nil
+}
+
+func (p *PostgresRepository) insertURLsInTransaction(ctx context.Context, tx pgx.Tx, urls []BatchItem) error {
+	if len(urls) == 0 {
+		return nil
+	}
+
 	batch := &pgx.Batch{}
 
-	for shortID, originalURL := range urls {
+	for _, item := range urls {
 		query := `
 		INSERT INTO urls (id, original_url) 
 		VALUES ($1, $2)
 		ON CONFLICT (original_url) DO NOTHING
 		`
-		batch.Queue(query, shortID, originalURL)
+		batch.Queue(query, item.ShortID, item.OriginalURL)
 	}
 
 	br := tx.SendBatch(ctx, batch)
@@ -150,22 +219,10 @@ func (p *PostgresRepository) SaveURLBatch(ctx context.Context, urls map[string]s
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
-	}
-
 	return nil
 }
 
-func (p *PostgresRepository) GetExistingURLs(ctx context.Context, originalURLs []string) (map[string]string, error) {
-	existing := make(map[string]string)
-
-	for _, url := range originalURLs {
-		shortID, err := p.GetShortID(ctx, url)
-		if err == nil {
-			existing[url] = shortID
-		}
-	}
-
-	return existing, nil
+type BatchItem struct {
+	ShortID     string
+	OriginalURL string
 }

@@ -258,42 +258,28 @@ func (s *ShortenerService) CreateShortURLBatch(batch []models.BatchRequest) ([]m
 func (s *ShortenerService) createBatchWithPostgres(batch []models.BatchRequest) ([]models.BatchResponse, error) {
 	ctx := context.Background()
 
-	originalURLs := make([]string, 0, len(batch))
-	for _, item := range batch {
-		originalURLs = append(originalURLs, item.OriginalURL)
-	}
-
-	existingURLs, err := s.pgRepo.GetExistingURLs(ctx, originalURLs)
-	if err != nil {
-		s.logger.Error("Failed to get existing URLs", zap.Error(err))
-	}
-
-	urlsToSave := make(map[string]string)
-	response := make([]models.BatchResponse, 0, len(batch))
-
-	for _, item := range batch {
-		if existingShortID, exists := existingURLs[item.OriginalURL]; exists {
-			response = append(response, models.BatchResponse{
-				CorrelationID: item.CorrelationID,
-				ShortURL:      s.baseURL + "/" + existingShortID,
-			})
-			continue
-		}
-
+	repoBatch := make([]repository.BatchItem, len(batch))
+	for i, item := range batch {
 		shortID := s.GenerateShortID()
-
-		urlsToSave[shortID] = item.OriginalURL
-
-		response = append(response, models.BatchResponse{
-			CorrelationID: item.CorrelationID,
-			ShortURL:      s.baseURL + "/" + shortID,
-		})
+		repoBatch[i] = repository.BatchItem{
+			ShortID:     shortID,
+			OriginalURL: item.OriginalURL,
+		}
 	}
 
-	if len(urlsToSave) > 0 {
-		if err := s.pgRepo.SaveURLBatch(ctx, urlsToSave); err != nil {
-			s.logger.Error("Failed to save URL batch", zap.Error(err))
-			return nil, err
+	result, err := s.pgRepo.ProcessURLBatch(ctx, repoBatch)
+	if err != nil {
+		s.logger.Error("Failed to process URL batch", zap.Error(err))
+		return nil, err
+	}
+
+	response := make([]models.BatchResponse, len(batch))
+	for i, item := range batch {
+		shortID := result[item.OriginalURL]
+		shortURL, _ := url.JoinPath(s.baseURL, shortID)
+		response[i] = models.BatchResponse{
+			CorrelationID: item.CorrelationID,
+			ShortURL:      shortURL,
 		}
 	}
 
@@ -309,17 +295,18 @@ func (s *ShortenerService) createBatchWithMemory(batch []models.BatchRequest) ([
 
 	for _, item := range batch {
 		if shortID, exists := s.reverseData[item.OriginalURL]; exists {
+			shortURL, _ := url.JoinPath(s.baseURL, shortID)
 			response = append(response, models.BatchResponse{
 				CorrelationID: item.CorrelationID,
-				ShortURL:      s.baseURL + "/" + shortID,
+				ShortURL:      shortURL,
 			})
 		} else {
 			shortID := s.GenerateShortID()
 			urlsToSave[shortID] = item
-
+			shortURL, _ := url.JoinPath(s.baseURL, shortID)
 			response = append(response, models.BatchResponse{
 				CorrelationID: item.CorrelationID,
-				ShortURL:      s.baseURL + "/" + shortID,
+				ShortURL:      shortURL,
 			})
 		}
 	}
