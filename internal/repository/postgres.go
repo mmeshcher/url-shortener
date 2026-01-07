@@ -10,6 +10,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -119,4 +120,52 @@ func (p *PostgresRepository) Ping(ctx context.Context) error {
 func (p *PostgresRepository) Close() error {
 	p.pool.Close()
 	return nil
+}
+
+func (p *PostgresRepository) SaveURLBatch(ctx context.Context, urls map[string]string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	batch := &pgx.Batch{}
+
+	for shortID, originalURL := range urls {
+		query := `
+		INSERT INTO urls (id, original_url) 
+		VALUES ($1, $2)
+		ON CONFLICT (original_url) DO NOTHING
+		`
+		batch.Queue(query, shortID, originalURL)
+	}
+
+	br := tx.SendBatch(ctx, batch)
+	defer br.Close()
+
+	for range urls {
+		_, err := br.Exec()
+		if err != nil {
+			return fmt.Errorf("batch exec: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostgresRepository) GetExistingURLs(ctx context.Context, originalURLs []string) (map[string]string, error) {
+	existing := make(map[string]string)
+
+	for _, url := range originalURLs {
+		shortID, err := p.GetShortID(ctx, url)
+		if err == nil {
+			existing[url] = shortID
+		}
+	}
+
+	return existing, nil
 }

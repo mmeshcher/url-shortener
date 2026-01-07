@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"sync"
@@ -218,4 +219,121 @@ func (s *ShortenerService) loadFromFile() {
 		s.reverseData[record.OriginalURL] = record.ShortURL
 	}
 	s.mu.Unlock()
+}
+
+func (s *ShortenerService) CreateShortURLBatch(batch []models.BatchRequest) ([]models.BatchResponse, error) {
+	if len(batch) == 0 {
+		return nil, fmt.Errorf("empty batch")
+	}
+
+	validURLs := make([]models.BatchRequest, 0, len(batch))
+	for _, item := range batch {
+		if item.OriginalURL == "" {
+			s.logger.Warn("Empty URL in batch", zap.String("correlation_id", item.CorrelationID))
+			continue
+		}
+
+		if _, err := url.ParseRequestURI(item.OriginalURL); err != nil {
+			s.logger.Warn("Invalid URL in batch",
+				zap.String("correlation_id", item.CorrelationID),
+				zap.String("url", item.OriginalURL),
+				zap.Error(err))
+			continue
+		}
+
+		validURLs = append(validURLs, item)
+	}
+
+	if len(validURLs) == 0 {
+		return nil, fmt.Errorf("no valid URLs in batch")
+	}
+
+	if s.useDB && s.pgRepo != nil {
+		return s.createBatchWithPostgres(validURLs)
+	}
+
+	return s.createBatchWithMemory(validURLs)
+}
+
+func (s *ShortenerService) createBatchWithPostgres(batch []models.BatchRequest) ([]models.BatchResponse, error) {
+	ctx := context.Background()
+
+	originalURLs := make([]string, 0, len(batch))
+	for _, item := range batch {
+		originalURLs = append(originalURLs, item.OriginalURL)
+	}
+
+	existingURLs, err := s.pgRepo.GetExistingURLs(ctx, originalURLs)
+	if err != nil {
+		s.logger.Error("Failed to get existing URLs", zap.Error(err))
+	}
+
+	urlsToSave := make(map[string]string)
+	response := make([]models.BatchResponse, 0, len(batch))
+
+	for _, item := range batch {
+		if existingShortID, exists := existingURLs[item.OriginalURL]; exists {
+			response = append(response, models.BatchResponse{
+				CorrelationID: item.CorrelationID,
+				ShortURL:      s.baseURL + "/" + existingShortID,
+			})
+			continue
+		}
+
+		shortID := s.GenerateShortID()
+
+		urlsToSave[shortID] = item.OriginalURL
+
+		response = append(response, models.BatchResponse{
+			CorrelationID: item.CorrelationID,
+			ShortURL:      s.baseURL + "/" + shortID,
+		})
+	}
+
+	if len(urlsToSave) > 0 {
+		if err := s.pgRepo.SaveURLBatch(ctx, urlsToSave); err != nil {
+			s.logger.Error("Failed to save URL batch", zap.Error(err))
+			return nil, err
+		}
+	}
+
+	return response, nil
+}
+
+func (s *ShortenerService) createBatchWithMemory(batch []models.BatchRequest) ([]models.BatchResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	response := make([]models.BatchResponse, 0, len(batch))
+	urlsToSave := make(map[string]models.BatchRequest)
+
+	for _, item := range batch {
+		if shortID, exists := s.reverseData[item.OriginalURL]; exists {
+			response = append(response, models.BatchResponse{
+				CorrelationID: item.CorrelationID,
+				ShortURL:      s.baseURL + "/" + shortID,
+			})
+		} else {
+			shortID := s.GenerateShortID()
+			urlsToSave[shortID] = item
+
+			response = append(response, models.BatchResponse{
+				CorrelationID: item.CorrelationID,
+				ShortURL:      s.baseURL + "/" + shortID,
+			})
+		}
+	}
+
+	for shortID, item := range urlsToSave {
+		s.data[shortID] = item.OriginalURL
+		s.reverseData[item.OriginalURL] = shortID
+	}
+
+	if len(urlsToSave) > 0 && s.storagePath != "" {
+		go func() {
+			s.saveToFile()
+		}()
+	}
+
+	return response, nil
 }

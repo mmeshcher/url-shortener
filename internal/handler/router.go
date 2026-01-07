@@ -22,6 +22,7 @@ func (h *Handler) SetupRouter() *chi.Mux {
 		r.Route("/api", func(r chi.Router) {
 			r.Route("/shorten", func(r chi.Router) {
 				r.Post("/", h.ShortenJSONHandler)
+				r.Post("/batch", h.ShortenBatchHandler)
 			})
 		})
 	})
