@@ -63,33 +63,40 @@ func (s *ShortenerService) GenerateShortID() string {
 	return base64.URLEncoding.EncodeToString(bytes)[:8]
 }
 
-func (s *ShortenerService) CreateShortURL(originalURL string) string {
+func (s *ShortenerService) CreateShortURL(originalURL string) (string, bool, error) {
 	if originalURL == "" {
 		s.logger.Warn("Attempt to create short URL for empty string")
-		return ""
+		return "", false, fmt.Errorf("empty url")
 	}
 
 	if _, err := url.ParseRequestURI(originalURL); err != nil {
 		s.logger.Warn("Invalid URL provided", zap.String("url", originalURL), zap.Error(err))
-		return ""
+		return "", false, fmt.Errorf("invalid url")
 	}
 
 	if s.useDB && s.pgRepo != nil {
 		ctx := context.Background()
-		if existingID, err := s.pgRepo.GetShortID(ctx, originalURL); err == nil {
-			fullURL, _ := url.JoinPath(s.baseURL, existingID)
-			return fullURL
-		}
 
 		shortID := s.GenerateShortID()
 
-		if err := s.pgRepo.SaveURL(ctx, shortID, originalURL); err != nil {
+		hasConflict, err := s.pgRepo.SaveURL(ctx, shortID, originalURL)
+		if err != nil {
 			s.logger.Error("Failed to save URL to database", zap.Error(err))
-			return ""
+			return "", false, err
+		}
+
+		if hasConflict {
+			existingID, err := s.pgRepo.GetShortIDForOriginalURL(ctx, originalURL)
+			if err != nil {
+				s.logger.Error("Failed to get existing short ID", zap.Error(err))
+				return "", true, err
+			}
+			fullURL, _ := url.JoinPath(s.baseURL, existingID)
+			return fullURL, true, nil
 		}
 
 		fullURL, _ := url.JoinPath(s.baseURL, shortID)
-		return fullURL
+		return fullURL, false, nil
 	}
 
 	s.mu.Lock()
@@ -97,7 +104,7 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 
 	if shortID, exists := s.reverseData[originalURL]; exists {
 		fullURL, _ := url.JoinPath(s.baseURL, shortID)
-		return fullURL
+		return fullURL, true, nil
 	}
 
 	const maxAttempts = 10
@@ -113,7 +120,7 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 
 	if attempts == maxAttempts {
 		s.logger.Error("Failed to generate unique short ID after max attempts")
-		return ""
+		return "", false, fmt.Errorf("failed to generate unique id")
 	}
 
 	s.data[shortID] = originalURL
@@ -124,7 +131,7 @@ func (s *ShortenerService) CreateShortURL(originalURL string) string {
 	}()
 
 	fullURL, _ := url.JoinPath(s.baseURL, shortID)
-	return fullURL
+	return fullURL, false, nil
 }
 
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {

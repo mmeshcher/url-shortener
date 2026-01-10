@@ -41,6 +41,18 @@ func TestShortenBatchHandler(t *testing.T) {
 			checkCount: true,
 		},
 		{
+			name:   "negative: duplicate URL conflict",
+			method: http.MethodPost,
+			path:   "/api/shorten/batch",
+			body: []models.BatchRequest{
+				{CorrelationID: "1", OriginalURL: "https://duplicate.yandex.ru"},
+				{CorrelationID: "2", OriginalURL: "https://duplicate.yandex.ru"},
+				{CorrelationID: "3", OriginalURL: "https://unique.com"},
+			},
+			wantStatus: http.StatusCreated,
+			checkCount: true,
+		},
+		{
 			name:   "positive: 1 invalid URL in batch, another valid",
 			method: http.MethodPost,
 			path:   "/api/shorten/batch",

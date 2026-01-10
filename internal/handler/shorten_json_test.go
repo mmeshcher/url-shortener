@@ -17,10 +17,11 @@ import (
 
 func TestShortenJSONHandler(t *testing.T) {
 	type want struct {
-		statusCode  int
-		contentType string
-		checkResult bool
-		checkError  bool
+		statusCode     int
+		contentType    string
+		checkResult    bool
+		checkError     bool
+		expectConflict bool
 	}
 
 	tests := []struct {
@@ -43,6 +44,21 @@ func TestShortenJSONHandler(t *testing.T) {
 				statusCode:  http.StatusCreated,
 				contentType: "application/json",
 				checkResult: true,
+			},
+		},
+		{
+			name:   "negative: duplicate URL conflict",
+			method: http.MethodPost,
+			path:   "/api/shorten",
+			body:   `{"url":"https://duplicate.yandex.ru"}`,
+			headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+			want: want{
+				statusCode:     http.StatusConflict,
+				contentType:    "application/json",
+				checkResult:    true,
+				expectConflict: true,
 			},
 		},
 		{
@@ -103,6 +119,17 @@ func TestShortenJSONHandler(t *testing.T) {
 			service := service.NewShortenerService("http://localhost:8080", "", logger, "")
 			h := NewHandler(service, logger)
 			router := h.SetupRouter()
+
+			if tt.want.expectConflict {
+				firstReq := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+				for key, value := range tt.headers {
+					firstReq.Header.Set(key, value)
+				}
+				firstW := httptest.NewRecorder()
+				router.ServeHTTP(firstW, firstReq)
+
+				assert.Equal(t, http.StatusCreated, firstW.Code)
+			}
 
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 

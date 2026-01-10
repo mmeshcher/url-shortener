@@ -29,15 +29,25 @@ func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL := h.service.CreateShortURL(req.URL)
-	if shortURL == "" {
-		h.logger.Error("Failed to create short URL")
-		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+	shortURL, conflict, err := h.service.CreateShortURL(req.URL)
+	if err != nil {
+		if shortURL == "" {
+			h.logger.Error("Failed to create short URL", zap.Error(err))
+			http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
 	}
 
 	resp := models.ShortenResponse{
 		Result: shortURL,
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+
+	if conflict {
+		rw.WriteHeader(http.StatusConflict)
+	} else {
+		rw.WriteHeader(http.StatusCreated)
 	}
 
 	rw.Header().Set("Content-Type", "application/json")

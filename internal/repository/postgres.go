@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -10,7 +11,9 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -78,15 +81,31 @@ func runMigrations(dsn string) error {
 	return nil
 }
 
-func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL string) error {
+func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL string) (bool, error) {
 	query := `
 	INSERT INTO urls (id, original_url) 
 	VALUES ($1, $2)
 	ON CONFLICT (original_url) DO NOTHING
 	`
 
-	_, err := p.pool.Exec(ctx, query, shortID, originalURL)
-	return err
+	cmdTag, err := p.pool.Exec(ctx, query, shortID, originalURL)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+			return true, nil
+		}
+		return false, fmt.Errorf("save url: %w", err)
+	}
+
+	if cmdTag.RowsAffected() == 0 {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (p *PostgresRepository) GetShortIDForOriginalURL(ctx context.Context, originalURL string) (string, error) {
+	return p.GetShortID(ctx, originalURL)
 }
 
 func (p *PostgresRepository) GetOriginalURL(ctx context.Context, shortID string) (string, error) {

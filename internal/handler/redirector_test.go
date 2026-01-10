@@ -34,7 +34,7 @@ func TestRedirectHandler(t *testing.T) {
 			setup: func() (*service.ShortenerService, string) {
 				logger := zap.NewNop()
 				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
-				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
+				shortURL, _, _ := service.CreateShortURL("https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID
 			},
@@ -67,7 +67,7 @@ func TestRedirectHandler(t *testing.T) {
 			setup: func() (*service.ShortenerService, string) {
 				logger := zap.NewNop()
 				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
-				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
+				shortURL, _, _ := service.CreateShortURL("https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID
 			},
