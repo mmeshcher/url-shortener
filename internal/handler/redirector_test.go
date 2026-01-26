@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -33,8 +34,8 @@ func TestRedirectHandler(t *testing.T) {
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string) {
 				logger := zap.NewNop()
-				service := service.NewShortenerService("http://localhost:8080", "", logger)
-				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
+				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
+				shortURL, _ := service.CreateShortURL(context.Background(), "https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID
 			},
@@ -51,7 +52,7 @@ func TestRedirectHandler(t *testing.T) {
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string) {
 				logger := zap.NewNop()
-				return service.NewShortenerService("http://localhost:8080", "", logger), "nonexistent123"
+				return service.NewShortenerService("http://localhost:8080", "", logger, ""), "nonexistent123"
 			},
 			want: want{
 				statusCode:  404,
@@ -66,8 +67,8 @@ func TestRedirectHandler(t *testing.T) {
 			method: http.MethodPost,
 			setup: func() (*service.ShortenerService, string) {
 				logger := zap.NewNop()
-				service := service.NewShortenerService("http://localhost:8080", "", logger)
-				shortURL := service.CreateShortURL("https://practicum.yandex.ru/")
+				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
+				shortURL, _ := service.CreateShortURL(context.Background(), "https://practicum.yandex.ru/")
 				shortID := shortURL[len("http://localhost:8080/"):]
 				return service, shortID
 			},

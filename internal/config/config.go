@@ -11,6 +11,7 @@ type Config struct {
 	ServerAddress   string `env:"SERVER_ADDRESS"`
 	BaseURL         string `env:"BASE_URL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
+	DatabaseDSN     string `env:"DATABASE_DSN"`
 }
 
 func ParseFlags() (*Config, error) {
@@ -23,10 +24,12 @@ func ParseFlags() (*Config, error) {
 	envServerAddress := cfg.ServerAddress
 	envBaseURL := cfg.BaseURL
 	envFileStoragePath := cfg.FileStoragePath
+	envDatabaseDSN := cfg.DatabaseDSN
 
 	flag.StringVar(&cfg.ServerAddress, "a", "localhost:8080", "Address of the server")
 	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "Base URL for short URLs")
 	flag.StringVar(&cfg.FileStoragePath, "file-storage-path", "url_storage.json", "Path to file storage")
+	flag.StringVar(&cfg.DatabaseDSN, "d", "", "Database connection string")
 
 	flag.Parse()
 
@@ -38,6 +41,9 @@ func ParseFlags() (*Config, error) {
 	}
 	if envFileStoragePath != "" {
 		cfg.FileStoragePath = envFileStoragePath
+	}
+	if envDatabaseDSN != "" {
+		cfg.DatabaseDSN = envDatabaseDSN
 	}
 
 	cfg.applyDefaultValues()

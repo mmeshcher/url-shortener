@@ -42,6 +42,18 @@ func TestShortenHandler(t *testing.T) {
 			},
 		},
 		{
+			name:    "negative: duplicate URL conflict",
+			request: "/",
+			body:    "https://duplicate.yandex.ru",
+			method:  http.MethodPost,
+			want: want{
+				statusCode:  409,
+				contentType: "text/plain",
+				body:        "http://localhost:8080/",
+				checkBody:   false,
+			},
+		},
+		{
 			name:    "negative: empty body",
 			request: "/",
 			body:    "",
@@ -84,11 +96,20 @@ func TestShortenHandler(t *testing.T) {
 			request.Header.Set("Content-Type", "text/plain")
 			w := httptest.NewRecorder()
 			logger := zap.NewNop()
-			service := service.NewShortenerService("http://localhost:8080", "", logger)
+			service := service.NewShortenerService("http://localhost:8080", "", logger, "")
 			h := NewHandler(service, logger)
 			r := h.SetupRouter()
 
-			r.ServeHTTP(w, request)
+			if tt.name == "negative: duplicate URL conflict" {
+				firstReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+				firstReq.Header.Set("Content-Type", "text/plain")
+				firstW := httptest.NewRecorder()
+				r.ServeHTTP(firstW, firstReq)
+
+				r.ServeHTTP(w, request)
+			} else {
+				r.ServeHTTP(w, request)
+			}
 
 			result := w.Result()
 			defer result.Body.Close()
