@@ -30,7 +30,7 @@ func (h *Handler) ShortenBatchHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := h.service.CreateShortURLBatch(batch)
+	response, err := h.service.CreateShortURLBatch(r.Context(), batch)
 	if err != nil {
 		h.logger.Error("Failed to create batch URLs", zap.Error(err))
 		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

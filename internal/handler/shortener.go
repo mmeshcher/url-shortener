@@ -1,10 +1,11 @@
-// internal/handler/shortener.go
 package handler
 
 import (
+	"errors"
 	"io"
 	"net/http"
 
+	"github.com/mmeshcher/url-shortener/internal/service"
 	"go.uber.org/zap"
 )
 
@@ -14,27 +15,25 @@ func (h *Handler) ShortenHandler(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "Empty body", http.StatusBadRequest)
 		return
 	}
-
 	defer r.Body.Close()
 
 	originalURL := string(body)
-	shortURL, conflict, err := h.service.CreateShortURL(originalURL)
+	shortURL, err := h.service.CreateShortURL(r.Context(), originalURL)
 
-	if err != nil && shortURL == "" {
+	if err != nil {
+		if errors.Is(err, service.ErrURLAlreadyExists) {
+			rw.Header().Set("Content-Type", "text/plain")
+			rw.WriteHeader(http.StatusConflict)
+			rw.Write([]byte(shortURL))
+			return
+		}
+
+		if errors.Is(err, service.ErrEmptyURL) || errors.Is(err, service.ErrInvalidURL) {
+			http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
 		h.logger.Error("Failed to create short URL", zap.Error(err))
-		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-
-	if conflict {
-		rw.Header().Set("Content-Type", "text/plain")
-		rw.WriteHeader(http.StatusConflict)
-		rw.Write([]byte(shortURL))
-		return
-	}
-
-	if shortURL == "" {
-		h.logger.Error("Failed to create short URL (empty result returned)")
 		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}

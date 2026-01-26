@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/url"
 	"os"
 	"sync"
@@ -14,6 +14,15 @@ import (
 	"github.com/mmeshcher/url-shortener/internal/models"
 	"github.com/mmeshcher/url-shortener/internal/repository"
 	"go.uber.org/zap"
+)
+
+var (
+	ErrEmptyURL         = errors.New("empty url")
+	ErrInvalidURL       = errors.New("invalid url")
+	ErrURLAlreadyExists = errors.New("url already exists")
+	ErrEmptyBatch       = errors.New("empty batch")
+	ErrNoValidURLs      = errors.New("no valid urls in batch")
+	ErrGenerateID       = errors.New("failed to generate unique id")
 )
 
 type ShortenerService struct {
@@ -63,40 +72,38 @@ func (s *ShortenerService) GenerateShortID() string {
 	return base64.URLEncoding.EncodeToString(bytes)[:8]
 }
 
-func (s *ShortenerService) CreateShortURL(originalURL string) (string, bool, error) {
+func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
 	if originalURL == "" {
 		s.logger.Warn("Attempt to create short URL for empty string")
-		return "", false, fmt.Errorf("empty url")
+		return "", ErrEmptyURL
 	}
 
 	if _, err := url.ParseRequestURI(originalURL); err != nil {
 		s.logger.Warn("Invalid URL provided", zap.String("url", originalURL), zap.Error(err))
-		return "", false, fmt.Errorf("invalid url")
+		return "", ErrInvalidURL
 	}
 
 	if s.useDB && s.pgRepo != nil {
-		ctx := context.Background()
-
 		shortID := s.GenerateShortID()
 
 		hasConflict, err := s.pgRepo.SaveURL(ctx, shortID, originalURL)
 		if err != nil {
 			s.logger.Error("Failed to save URL to database", zap.Error(err))
-			return "", false, err
+			return "", err
 		}
 
 		if hasConflict {
-			existingID, err := s.pgRepo.GetShortIDForOriginalURL(ctx, originalURL)
+			existingID, err := s.pgRepo.GetShortID(ctx, originalURL)
 			if err != nil {
 				s.logger.Error("Failed to get existing short ID", zap.Error(err))
-				return "", true, err
+				return "", err
 			}
 			fullURL, _ := url.JoinPath(s.baseURL, existingID)
-			return fullURL, true, nil
+			return fullURL, ErrURLAlreadyExists
 		}
 
 		fullURL, _ := url.JoinPath(s.baseURL, shortID)
-		return fullURL, false, nil
+		return fullURL, nil
 	}
 
 	s.mu.Lock()
@@ -104,7 +111,7 @@ func (s *ShortenerService) CreateShortURL(originalURL string) (string, bool, err
 
 	if shortID, exists := s.reverseData[originalURL]; exists {
 		fullURL, _ := url.JoinPath(s.baseURL, shortID)
-		return fullURL, true, nil
+		return fullURL, ErrURLAlreadyExists
 	}
 
 	const maxAttempts = 10
@@ -120,7 +127,7 @@ func (s *ShortenerService) CreateShortURL(originalURL string) (string, bool, err
 
 	if attempts == maxAttempts {
 		s.logger.Error("Failed to generate unique short ID after max attempts")
-		return "", false, fmt.Errorf("failed to generate unique id")
+		return "", ErrGenerateID
 	}
 
 	s.data[shortID] = originalURL
@@ -131,7 +138,7 @@ func (s *ShortenerService) CreateShortURL(originalURL string) (string, bool, err
 	}()
 
 	fullURL, _ := url.JoinPath(s.baseURL, shortID)
-	return fullURL, false, nil
+	return fullURL, nil
 }
 
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {
@@ -228,38 +235,33 @@ func (s *ShortenerService) loadFromFile() {
 	s.mu.Unlock()
 }
 
-func (s *ShortenerService) CreateShortURLBatch(batch []models.BatchRequest) ([]models.BatchResponse, error) {
+func (s *ShortenerService) CreateShortURLBatch(ctx context.Context, batch []models.BatchRequest) ([]models.BatchResponse, error) {
 	if len(batch) == 0 {
-		return nil, fmt.Errorf("empty batch")
+		return nil, ErrEmptyBatch
 	}
 
-	validURLs := make([]models.BatchRequest, 0, len(batch))
+	response := make([]models.BatchResponse, 0, len(batch))
+	validCount := 0
+
 	for _, item := range batch {
-		if item.OriginalURL == "" {
-			s.logger.Warn("Empty URL in batch", zap.String("correlation_id", item.CorrelationID))
+		shortURL, err := s.CreateShortURL(ctx, item.OriginalURL)
+
+		if err != nil && !errors.Is(err, ErrURLAlreadyExists) && shortURL == "" {
 			continue
 		}
 
-		if _, err := url.ParseRequestURI(item.OriginalURL); err != nil {
-			s.logger.Warn("Invalid URL in batch",
-				zap.String("correlation_id", item.CorrelationID),
-				zap.String("url", item.OriginalURL),
-				zap.Error(err))
-			continue
-		}
-
-		validURLs = append(validURLs, item)
+		response = append(response, models.BatchResponse{
+			CorrelationID: item.CorrelationID,
+			ShortURL:      shortURL,
+		})
+		validCount++
 	}
 
-	if len(validURLs) == 0 {
-		return nil, fmt.Errorf("no valid URLs in batch")
+	if validCount == 0 {
+		return nil, ErrNoValidURLs
 	}
 
-	if s.useDB && s.pgRepo != nil {
-		return s.createBatchWithPostgres(validURLs)
-	}
-
-	return s.createBatchWithMemory(validURLs)
+	return response, nil
 }
 
 func (s *ShortenerService) createBatchWithPostgres(batch []models.BatchRequest) ([]models.BatchResponse, error) {

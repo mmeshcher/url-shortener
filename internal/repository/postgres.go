@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -20,6 +21,7 @@ import (
 
 type PostgresRepository struct {
 	pool *pgxpool.Pool
+	sb   squirrel.StatementBuilderType
 }
 
 func NewPostgresRepository(dsn string) (*PostgresRepository, error) {
@@ -82,19 +84,23 @@ func runMigrations(dsn string) error {
 }
 
 func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL string) (bool, error) {
-	query := `
-	INSERT INTO urls (id, original_url) 
-	VALUES ($1, $2)
-	ON CONFLICT (original_url) DO NOTHING
-	`
+	query, args, err := p.sb.
+		Insert("urls").
+		Columns("short_id", "original_url").
+		Values(shortID, originalURL).
+		Suffix("ON CONFLICT (original_url) DO NOTHING").
+		ToSql()
+	if err != nil {
+		return false, fmt.Errorf("build query: %w", err)
+	}
 
-	cmdTag, err := p.pool.Exec(ctx, query, shortID, originalURL)
+	cmdTag, err := p.pool.Exec(ctx, query, args...)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
 			return true, nil
 		}
-		return false, fmt.Errorf("save url: %w", err)
+		return false, fmt.Errorf("execute query: %w", err)
 	}
 
 	if cmdTag.RowsAffected() == 0 {
@@ -109,24 +115,41 @@ func (p *PostgresRepository) GetShortIDForOriginalURL(ctx context.Context, origi
 }
 
 func (p *PostgresRepository) GetOriginalURL(ctx context.Context, shortID string) (string, error) {
-	query := `SELECT original_url FROM urls WHERE id = $1`
+	query, args, err := p.sb.
+		Select("original_url").
+		From("urls").
+		Where(squirrel.Eq{"short_id": shortID}).
+		ToSql()
 
 	var originalURL string
-	err := p.pool.QueryRow(ctx, query, shortID).Scan(&originalURL)
+	err = p.pool.QueryRow(ctx, query, args...).Scan(&originalURL)
 	if err != nil {
-		return "", fmt.Errorf("not found: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("not found: %w", err)
+		}
+		return "", fmt.Errorf("query row: %w", err)
 	}
 
 	return originalURL, nil
 }
 
 func (p *PostgresRepository) GetShortID(ctx context.Context, originalURL string) (string, error) {
-	query := `SELECT id FROM urls WHERE original_url = $1`
+	query, args, err := p.sb.
+		Select("short_id").
+		From("urls").
+		Where(squirrel.Eq{"original_url": originalURL}).
+		ToSql()
+	if err != nil {
+		return "", fmt.Errorf("build query: %w", err)
+	}
 
 	var shortID string
-	err := p.pool.QueryRow(ctx, query, originalURL).Scan(&shortID)
+	err = p.pool.QueryRow(ctx, query, args...).Scan(&shortID)
 	if err != nil {
-		return "", fmt.Errorf("not found: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("not found: %w", err)
+		}
+		return "", fmt.Errorf("query row: %w", err)
 	}
 
 	return shortID, nil
@@ -188,15 +211,22 @@ func (p *PostgresRepository) getExistingURLsInTransaction(ctx context.Context, t
 		return make(map[string]string), nil
 	}
 
-	existing := make(map[string]string)
+	query, args, err := p.sb.
+		Select("short_id", "original_url").
+		From("urls").
+		Where(squirrel.Eq{"original_url": originalURLs}).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
 
-	query := `SELECT id, original_url FROM urls WHERE original_url = ANY($1)`
-	rows, err := tx.Query(ctx, query, originalURLs)
+	rows, err := tx.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query existing urls: %w", err)
 	}
 	defer rows.Close()
 
+	existing := make(map[string]string)
 	for rows.Next() {
 		var shortID, originalURL string
 		if err := rows.Scan(&shortID, &originalURL); err != nil {
@@ -217,25 +247,21 @@ func (p *PostgresRepository) insertURLsInTransaction(ctx context.Context, tx pgx
 		return nil
 	}
 
-	batch := &pgx.Batch{}
-
+	insertBuilder := p.sb.
+		Insert("urls").
+		Columns("short_id", "original_url")
 	for _, item := range urls {
-		query := `
-		INSERT INTO urls (id, original_url) 
-		VALUES ($1, $2)
-		ON CONFLICT (original_url) DO NOTHING
-		`
-		batch.Queue(query, item.ShortID, item.OriginalURL)
+		insertBuilder = insertBuilder.Values(item.ShortID, item.OriginalURL)
 	}
 
-	br := tx.SendBatch(ctx, batch)
-	defer br.Close()
+	query, args, err := insertBuilder.Suffix("ON CONFLICT (original_url) DO NOTHING").ToSql()
+	if err != nil {
+		return fmt.Errorf("build insert query: %w", err)
+	}
 
-	for range urls {
-		_, err := br.Exec()
-		if err != nil {
-			return fmt.Errorf("batch exec: %w", err)
-		}
+	_, err = tx.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("execute insert: %w", err)
 	}
 
 	return nil
