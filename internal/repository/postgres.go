@@ -121,6 +121,10 @@ func (p *PostgresRepository) GetOriginalURL(ctx context.Context, shortID string)
 		Where(squirrel.Eq{"short_id": shortID}).
 		ToSql()
 
+	if err != nil {
+		return "", fmt.Errorf("build query: %w", err)
+	}
+
 	var originalURL string
 	err = p.pool.QueryRow(ctx, query, args...).Scan(&originalURL)
 	if err != nil {
