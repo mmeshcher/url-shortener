@@ -48,7 +48,8 @@ func NewPostgresRepository(dsn string) (*PostgresRepository, error) {
 
 	log.Println("PostgreSQL repository initialized successfully")
 
-	return &PostgresRepository{pool: pool}, nil
+	return &PostgresRepository{pool: pool,
+		sb: squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)}, nil
 }
 
 func runMigrations(dsn string) error {
