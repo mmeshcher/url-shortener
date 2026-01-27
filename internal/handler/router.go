@@ -12,6 +12,7 @@ func (h *Handler) SetupRouter() *chi.Mux {
 
 	r.Use(custommiddleware.GzipMiddleware)
 	r.Use(custommiddleware.Logger(h.logger))
+	r.Use(custommiddleware.AuthMiddleware)
 
 	r.Route("/", func(r chi.Router) {
 		r.Post("/", h.ShortenHandler)
@@ -23,6 +24,9 @@ func (h *Handler) SetupRouter() *chi.Mux {
 			r.Route("/shorten", func(r chi.Router) {
 				r.Post("/", h.ShortenJSONHandler)
 				r.Post("/batch", h.ShortenBatchHandler)
+			})
+			r.Route("/user", func(r chi.Router) {
+				r.Get("/urls", h.GetUserURLsHandler)
 			})
 		})
 	})

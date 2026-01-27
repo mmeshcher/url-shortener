@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/models"
 	"go.uber.org/zap"
 )
@@ -30,7 +31,14 @@ func (h *Handler) ShortenBatchHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := h.service.CreateShortURLBatch(r.Context(), batch)
+	ctx := r.Context()
+	userID, ok := middleware.GetUserIDFromContext(ctx)
+	if !ok || userID == "" {
+		http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+
+	response, err := h.service.CreateShortURLBatch(r.Context(), batch, userID)
 	if err != nil {
 		h.logger.Error("Failed to create batch URLs", zap.Error(err))
 		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

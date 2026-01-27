@@ -2,12 +2,16 @@ package handler
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"io"
 
+	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +19,21 @@ import (
 )
 
 func TestRedirectHandler(t *testing.T) {
+	logger := zap.NewNop()
+	middleware.InitAuthMiddleware("test-secret-key", logger)
+
+	createTestCookie := func(userID string) *http.Cookie {
+		mac := hmac.New(sha256.New, []byte("test-secret-key"))
+		mac.Write([]byte(userID))
+		signature := mac.Sum(nil)
+		signedValue := userID + "." + hex.EncodeToString(signature)
+
+		return &http.Cookie{
+			Name:  "user_id",
+			Value: signedValue,
+		}
+	}
+
 	type want struct {
 		statusCode  int
 		contentType string
@@ -26,18 +45,20 @@ func TestRedirectHandler(t *testing.T) {
 	tests := []struct {
 		name   string
 		method string
-		setup  func() (*service.ShortenerService, string)
+		setup  func() (*service.ShortenerService, string, *http.Cookie)
 		want   want
 	}{
 		{
 			name:   "positive test",
 			method: http.MethodGet,
-			setup: func() (*service.ShortenerService, string) {
-				logger := zap.NewNop()
+			setup: func() (*service.ShortenerService, string, *http.Cookie) {
 				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
-				shortURL, _ := service.CreateShortURL(context.Background(), "https://practicum.yandex.ru/")
+				testUserID := "test-user-123"
+				testCookie := createTestCookie(testUserID)
+
+				shortURL, _ := service.CreateShortURL(context.Background(), "https://practicum.yandex.ru/", testUserID)
 				shortID := shortURL[len("http://localhost:8080/"):]
-				return service, shortID
+				return service, shortID, testCookie
 			},
 			want: want{
 				statusCode:  307,
@@ -50,9 +71,10 @@ func TestRedirectHandler(t *testing.T) {
 		{
 			name:   "negative: non-existent short URL",
 			method: http.MethodGet,
-			setup: func() (*service.ShortenerService, string) {
-				logger := zap.NewNop()
-				return service.NewShortenerService("http://localhost:8080", "", logger, ""), "nonexistent123"
+			setup: func() (*service.ShortenerService, string, *http.Cookie) {
+				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
+				testCookie := createTestCookie("test-user-456")
+				return service, "nonexistent123", testCookie
 			},
 			want: want{
 				statusCode:  404,
@@ -65,12 +87,14 @@ func TestRedirectHandler(t *testing.T) {
 		{
 			name:   "negative: wrong method POST",
 			method: http.MethodPost,
-			setup: func() (*service.ShortenerService, string) {
-				logger := zap.NewNop()
+			setup: func() (*service.ShortenerService, string, *http.Cookie) {
 				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
-				shortURL, _ := service.CreateShortURL(context.Background(), "https://practicum.yandex.ru/")
+				testUserID := "test-user-789"
+				testCookie := createTestCookie(testUserID)
+
+				shortURL, _ := service.CreateShortURL(context.Background(), "https://practicum.yandex.ru/", testUserID)
 				shortID := shortURL[len("http://localhost:8080/"):]
-				return service, shortID
+				return service, shortID, testCookie
 			},
 			want: want{
 				statusCode:  405,
@@ -84,11 +108,12 @@ func TestRedirectHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, shortID := tt.setup()
+			service, shortID, testCookie := tt.setup()
 
 			request := httptest.NewRequest(tt.method, "/"+shortID, nil)
+			request.AddCookie(testCookie)
+
 			w := httptest.NewRecorder()
-			logger := zap.NewNop()
 
 			h := NewHandler(service, logger)
 			r := h.SetupRouter()

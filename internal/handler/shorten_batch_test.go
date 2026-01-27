@@ -2,11 +2,15 @@ package handler
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/models"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"github.com/stretchr/testify/assert"
@@ -16,15 +20,26 @@ import (
 
 func TestShortenBatchHandler(t *testing.T) {
 	logger := zap.NewNop()
-	service := service.NewShortenerService("http://localhost:8080", "", logger, "")
-	h := NewHandler(service, logger)
-	router := h.SetupRouter()
+	middleware.InitAuthMiddleware("test-secret-key", logger)
+
+	createTestCookie := func(userID string) *http.Cookie {
+		mac := hmac.New(sha256.New, []byte("test-secret-key"))
+		mac.Write([]byte(userID))
+		signature := mac.Sum(nil)
+		signedValue := userID + "." + hex.EncodeToString(signature)
+
+		return &http.Cookie{
+			Name:  "user_id",
+			Value: signedValue,
+		}
+	}
 
 	tests := []struct {
 		name       string
 		method     string
 		path       string
 		body       []models.BatchRequest
+		userID     string
 		wantStatus int
 		checkCount bool
 	}{
@@ -37,6 +52,7 @@ func TestShortenBatchHandler(t *testing.T) {
 				{CorrelationID: "2", OriginalURL: "https://google.com"},
 				{CorrelationID: "3", OriginalURL: "https://github.com"},
 			},
+			userID:     "test-user-1",
 			wantStatus: http.StatusCreated,
 			checkCount: true,
 		},
@@ -49,6 +65,7 @@ func TestShortenBatchHandler(t *testing.T) {
 				{CorrelationID: "2", OriginalURL: "https://duplicate.yandex.ru"},
 				{CorrelationID: "3", OriginalURL: "https://unique.com"},
 			},
+			userID:     "test-user-2",
 			wantStatus: http.StatusCreated,
 			checkCount: true,
 		},
@@ -60,6 +77,7 @@ func TestShortenBatchHandler(t *testing.T) {
 				{CorrelationID: "1", OriginalURL: "invalid-url"},
 				{CorrelationID: "2", OriginalURL: "https://yandex.ru"},
 			},
+			userID:     "test-user-3",
 			wantStatus: http.StatusCreated,
 		},
 		{
@@ -67,6 +85,7 @@ func TestShortenBatchHandler(t *testing.T) {
 			method:     http.MethodPost,
 			path:       "/api/shorten/batch",
 			body:       []models.BatchRequest{},
+			userID:     "test-user-4",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -77,6 +96,7 @@ func TestShortenBatchHandler(t *testing.T) {
 				{CorrelationID: "1", OriginalURL: "invalid-url"},
 				{CorrelationID: "2", OriginalURL: ""},
 			},
+			userID:     "test-user-5",
 			wantStatus: http.StatusInternalServerError,
 		},
 		{
@@ -84,17 +104,25 @@ func TestShortenBatchHandler(t *testing.T) {
 			method:     http.MethodGet,
 			path:       "/api/shorten/batch",
 			body:       []models.BatchRequest{},
+			userID:     "test-user-6",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			service := service.NewShortenerService("http://localhost:8080", "", logger, "")
+			h := NewHandler(service, logger)
+			router := h.SetupRouter()
+
+			testCookie := createTestCookie(tt.userID)
+
 			bodyBytes, err := json.Marshal(tt.body)
 			require.NoError(t, err)
 
 			req := httptest.NewRequest(tt.method, tt.path, bytes.NewReader(bodyBytes))
 			req.Header.Set("Content-Type", "application/json")
+			req.AddCookie(testCookie)
 
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)

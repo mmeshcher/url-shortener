@@ -17,14 +17,16 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/mmeshcher/url-shortener/internal/models"
 )
 
 type PostgresRepository struct {
-	pool *pgxpool.Pool
-	sb   squirrel.StatementBuilderType
+	pool    *pgxpool.Pool
+	sb      squirrel.StatementBuilderType
+	baseURL string
 }
 
-func NewPostgresRepository(dsn string) (*PostgresRepository, error) {
+func NewPostgresRepository(dsn, baseURL string) (*PostgresRepository, error) {
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
@@ -48,8 +50,11 @@ func NewPostgresRepository(dsn string) (*PostgresRepository, error) {
 
 	log.Println("PostgreSQL repository initialized successfully")
 
-	return &PostgresRepository{pool: pool,
-		sb: squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)}, nil
+	return &PostgresRepository{
+		pool:    pool,
+		sb:      squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar),
+		baseURL: baseURL,
+	}, nil
 }
 
 func runMigrations(dsn string) error {
@@ -77,18 +82,28 @@ func runMigrations(dsn string) error {
 	}
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		return fmt.Errorf("apply migrations: %w", err)
+		if err.Error() == "Dirty database version 1. Fix and force version." {
+			log.Println("Database is in dirty state, forcing clean state...")
+			if forceErr := m.Force(1); forceErr != nil {
+				log.Printf("Failed to force version: %v", forceErr)
+			}
+			if retryErr := m.Up(); retryErr != nil && retryErr != migrate.ErrNoChange {
+				return fmt.Errorf("apply migrations after force: %w", retryErr)
+			}
+		} else {
+			return fmt.Errorf("apply migrations: %w", err)
+		}
 	}
 
 	log.Println("Migrations applied successfully")
 	return nil
 }
 
-func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL string) (bool, error) {
+func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL, userID string) (bool, error) {
 	query, args, err := p.sb.
 		Insert("urls").
-		Columns("short_id", "original_url").
-		Values(shortID, originalURL).
+		Columns("short_id", "original_url", "user_id").
+		Values(shortID, originalURL, userID).
 		Suffix("ON CONFLICT (original_url) DO NOTHING").
 		ToSql()
 	if err != nil {
@@ -109,6 +124,43 @@ func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL s
 	}
 
 	return false, nil
+}
+
+func (p *PostgresRepository) GetUserURLs(ctx context.Context, userID string) ([]models.UserURL, error) {
+	query, args, err := p.sb.
+		Select("short_id", "original_url").
+		From("urls").
+		Where(squirrel.Eq{"user_id": userID}).
+		OrderBy("created_at DESC").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	rows, err := p.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query user URLs: %w", err)
+	}
+	defer rows.Close()
+
+	var userURLs []models.UserURL
+	for rows.Next() {
+		var shortID, originalURL string
+		if err := rows.Scan(&shortID, &originalURL); err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+		shortURL := fmt.Sprintf("%s/%s", p.baseURL, shortID)
+		userURLs = append(userURLs, models.UserURL{
+			ShortURL:    shortURL,
+			OriginalURL: originalURL,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return userURLs, nil
 }
 
 func (p *PostgresRepository) GetShortIDForOriginalURL(ctx context.Context, originalURL string) (string, error) {
@@ -152,7 +204,7 @@ func (p *PostgresRepository) GetShortID(ctx context.Context, originalURL string)
 	err = p.pool.QueryRow(ctx, query, args...).Scan(&shortID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", fmt.Errorf("not found: %w", err)
+			return "", nil
 		}
 		return "", fmt.Errorf("query row: %w", err)
 	}

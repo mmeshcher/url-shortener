@@ -7,6 +7,7 @@ import (
 
 	"github.com/mmeshcher/url-shortener/internal/config"
 	"github.com/mmeshcher/url-shortener/internal/handler"
+	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/service"
 )
 
@@ -36,6 +37,9 @@ func main() {
 		"file_storage_path", cfg.FileStoragePath,
 		"using_database", cfg.DatabaseDSN != "",
 	)
+
+	middleware.InitAuthMiddleware(cfg.SecretKey, logger)
+
 	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath, logger, cfg.DatabaseDSN)
 
 	h := handler.NewHandler(shortnerService, logger)
