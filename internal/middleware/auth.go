@@ -14,6 +14,10 @@ import (
 	"go.uber.org/zap"
 )
 
+type contextKey string
+
+const userIDKey contextKey = "userID"
+
 const (
 	cookieName    = "user_id"
 	cookieExpires = 365 * 24 * time.Hour
@@ -49,7 +53,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, "userID", userID)
+		ctx = context.WithValue(ctx, userIDKey, userID)
 		r = r.WithContext(ctx)
 
 		next.ServeHTTP(w, r)
@@ -125,6 +129,6 @@ func validateCookie(cookieValue, expectedUserID string) bool {
 }
 
 func GetUserIDFromContext(ctx context.Context) (string, bool) {
-	userID, ok := ctx.Value("userID").(string)
+	userID, ok := ctx.Value(userIDKey).(string)
 	return userID, ok
 }
