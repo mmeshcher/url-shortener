@@ -27,6 +27,7 @@ func (h *Handler) SetupRouter() *chi.Mux {
 			})
 			r.Route("/user", func(r chi.Router) {
 				r.Get("/urls", h.GetUserURLsHandler)
+				r.Delete("/urls", h.DeleteUserURLsHandler)
 			})
 		})
 	})

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mmeshcher/url-shortener/internal/models"
@@ -25,17 +26,27 @@ var (
 	ErrGenerateID       = errors.New("failed to generate unique id")
 )
 
+type DeleteTask struct {
+	UserID   string
+	ShortIDs []string
+}
+
 type ShortenerService struct {
 	mu          sync.RWMutex
 	saveMu      sync.Mutex
 	data        map[string]string
 	reverseData map[string]string
 	userData    map[string][]string
+	deletedURLs map[string]bool
 	baseURL     string
 	storagePath string
 	logger      *zap.Logger
 	pgRepo      *repository.PostgresRepository
 	useDB       bool
+
+	deleteTasks chan DeleteTask
+	workers     int
+	wg          sync.WaitGroup
 }
 
 func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databaseDSN string) *ShortenerService {
@@ -43,10 +54,18 @@ func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databa
 		data:        make(map[string]string),
 		reverseData: make(map[string]string),
 		userData:    make(map[string][]string),
+		deletedURLs: make(map[string]bool),
 		baseURL:     baseURL,
 		storagePath: storagePath,
 		logger:      logger,
 		useDB:       databaseDSN != "",
+		deleteTasks: make(chan DeleteTask, 100),
+		workers:     3,
+	}
+
+	for i := 0; i < service.workers; i++ {
+		service.wg.Add(1)
+		go service.deleteWorker(i)
 	}
 
 	if service.useDB {
@@ -88,19 +107,15 @@ func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL, user
 	if s.useDB && s.pgRepo != nil {
 		shortID := s.GenerateShortID()
 
-		hasConflict, err := s.pgRepo.SaveURL(ctx, shortID, originalURL, userID)
+		savedShortID, hasConflict, err := s.pgRepo.SaveURL(ctx, shortID, originalURL, userID)
+
 		if err != nil {
 			s.logger.Error("Failed to save URL to database", zap.Error(err))
 			return "", err
 		}
 
 		if hasConflict {
-			existingID, err := s.pgRepo.GetShortID(ctx, originalURL)
-			if err != nil {
-				s.logger.Error("Failed to get existing short ID", zap.Error(err))
-				return "", err
-			}
-			fullURL, _ := url.JoinPath(s.baseURL, existingID)
+			fullURL, _ := url.JoinPath(s.baseURL, savedShortID)
 			return fullURL, ErrURLAlreadyExists
 		}
 
@@ -172,21 +187,28 @@ func (s *ShortenerService) GetUserURLs(ctx context.Context, userID string) ([]mo
 	return []models.UserURL{}, nil
 }
 
-func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {
+func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool, bool) {
 	if s.useDB && s.pgRepo != nil {
 		ctx := context.Background()
-		originalURL, err := s.pgRepo.GetOriginalURL(ctx, shortID)
+		originalURL, deleted, err := s.pgRepo.GetOriginalURL(ctx, shortID)
 		if err != nil {
-			return "", false
+			return "", false, false
 		}
-		return originalURL, true
+		if deleted {
+			return "", true, true
+		}
+		return originalURL, true, false
 	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	if s.deletedURLs[shortID] {
+		return "", true, true
+	}
+
 	originalURL, exists := s.data[shortID]
-	return originalURL, exists
+	return originalURL, exists, false
 }
 
 func (s *ShortenerService) Ping() error {
@@ -394,4 +416,114 @@ func (s *ShortenerService) createBatchWithMemory(batch []models.BatchRequest) ([
 	}
 
 	return response, nil
+}
+
+func (s *ShortenerService) DeleteUserURLs(userID string, shortIDs []string) {
+	if len(shortIDs) == 0 {
+		return
+	}
+
+	task := DeleteTask{
+		UserID:   userID,
+		ShortIDs: shortIDs,
+	}
+
+	select {
+	case s.deleteTasks <- task:
+		s.logger.Info("Delete task queued",
+			zap.String("userID", userID),
+			zap.Int("count", len(shortIDs)))
+	default:
+		s.logger.Warn("Delete queue is full, dropping task",
+			zap.String("userID", userID))
+	}
+}
+
+func (s *ShortenerService) deleteWorker(id int) {
+	defer s.wg.Done()
+
+	s.logger.Debug("Delete worker started", zap.Int("workerID", id))
+
+	for task := range s.deleteTasks {
+		s.processDeleteTask(task)
+	}
+
+	s.logger.Debug("Delete worker stopped", zap.Int("workerID", id))
+}
+
+func (s *ShortenerService) processDeleteTask(task DeleteTask) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if s.useDB && s.pgRepo != nil {
+		err := s.pgRepo.DeleteUserURLs(ctx, task.UserID, task.ShortIDs)
+		if err != nil {
+			s.logger.Error("Failed to delete URLs in database",
+				zap.String("userID", task.UserID),
+				zap.Error(err))
+		} else {
+			s.logger.Info("URLs deleted in database",
+				zap.String("userID", task.UserID),
+				zap.Int("count", len(task.ShortIDs)))
+		}
+	} else {
+		s.mu.Lock()
+		for _, shortID := range task.ShortIDs {
+			if userShortIDs, exists := s.userData[task.UserID]; exists {
+				for _, userShortID := range userShortIDs {
+					if userShortID == shortID {
+						s.deletedURLs[shortID] = true
+						break
+					}
+				}
+			}
+		}
+		s.mu.Unlock()
+
+		s.logger.Info("URLs marked as deleted in memory",
+			zap.String("userID", task.UserID),
+			zap.Int("count", len(task.ShortIDs)))
+	}
+}
+
+func (s *ShortenerService) GetURLsByShortIDs(ctx context.Context, shortIDs []string) (map[string]models.Storage, error) {
+	if s.useDB && s.pgRepo != nil {
+		return s.pgRepo.GetURLsByShortIDs(ctx, shortIDs)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[string]models.Storage)
+	for _, shortID := range shortIDs {
+		if originalURL, exists := s.data[shortID]; exists {
+			var userID string
+			for uid, shortIDs := range s.userData {
+				for _, sid := range shortIDs {
+					if sid == shortID {
+						userID = uid
+						break
+					}
+				}
+				if userID != "" {
+					break
+				}
+			}
+
+			result[shortID] = models.Storage{
+				ShortURL:    shortID,
+				OriginalURL: originalURL,
+				UserID:      userID,
+				IsDeleted:   s.deletedURLs[shortID],
+			}
+		}
+	}
+
+	return result, nil
+}
+
+func (s *ShortenerService) Close() {
+	close(s.deleteTasks)
+	s.wg.Wait()
+	s.logger.Info("All delete workers stopped")
 }

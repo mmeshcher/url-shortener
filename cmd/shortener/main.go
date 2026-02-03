@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -42,16 +47,42 @@ func main() {
 
 	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath, logger, cfg.DatabaseDSN)
 
+	defer shortnerService.Close()
+
 	h := handler.NewHandler(shortnerService, logger)
 
 	r := h.SetupRouter()
 
-	sugar.Infow(
-		"Server starting",
-		"address", cfg.ServerAddress,
-	)
-
-	if err := http.ListenAndServe(cfg.ServerAddress, r); err != nil {
-		sugar.Fatalw(err.Error(), "event", "start server")
+	server := &http.Server{
+		Addr:    cfg.ServerAddress,
+		Handler: r,
 	}
+
+	go func() {
+		sugar.Infow(
+			"Server starting",
+			"address", cfg.ServerAddress,
+		)
+
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			sugar.Fatalw("Server failed",
+				"error", err.Error())
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	sugar.Info("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		sugar.Errorw("Server shutdown failed",
+			"error", err.Error())
+	}
+
+	sugar.Info("Server stopped")
 }
