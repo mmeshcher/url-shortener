@@ -44,23 +44,29 @@ type ShortenerService struct {
 	pgRepo      *repository.PostgresRepository
 	useDB       bool
 
-	deleteTasks chan DeleteTask
-	workers     int
-	wg          sync.WaitGroup
+	deleteTasks  chan DeleteTask
+	batchTimeout time.Duration
+	batchSize    int
+	workers      int
+	wg           sync.WaitGroup
+	shutdownChan chan struct{}
 }
 
 func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databaseDSN string) *ShortenerService {
 	service := &ShortenerService{
-		data:        make(map[string]string),
-		reverseData: make(map[string]string),
-		userData:    make(map[string][]string),
-		deletedURLs: make(map[string]bool),
-		baseURL:     baseURL,
-		storagePath: storagePath,
-		logger:      logger,
-		useDB:       databaseDSN != "",
-		deleteTasks: make(chan DeleteTask, 100),
-		workers:     3,
+		data:         make(map[string]string),
+		reverseData:  make(map[string]string),
+		userData:     make(map[string][]string),
+		deletedURLs:  make(map[string]bool),
+		baseURL:      baseURL,
+		storagePath:  storagePath,
+		logger:       logger,
+		useDB:        databaseDSN != "",
+		deleteTasks:  make(chan DeleteTask, 1000),
+		batchTimeout: 500 * time.Millisecond,
+		batchSize:    100,
+		workers:      3,
+		shutdownChan: make(chan struct{}),
 	}
 
 	for i := 0; i < service.workers; i++ {
@@ -418,9 +424,9 @@ func (s *ShortenerService) createBatchWithMemory(batch []models.BatchRequest) ([
 	return response, nil
 }
 
-func (s *ShortenerService) DeleteUserURLs(userID string, shortIDs []string) {
+func (s *ShortenerService) DeleteUserURLs(userID string, shortIDs []string) error {
 	if len(shortIDs) == 0 {
-		return
+		return nil
 	}
 
 	task := DeleteTask{
@@ -433,9 +439,11 @@ func (s *ShortenerService) DeleteUserURLs(userID string, shortIDs []string) {
 		s.logger.Info("Delete task queued",
 			zap.String("userID", userID),
 			zap.Int("count", len(shortIDs)))
-	default:
-		s.logger.Warn("Delete queue is full, dropping task",
+		return nil
+	case <-time.After(5 * time.Second):
+		s.logger.Error("Delete queue is full, timeout exceeded",
 			zap.String("userID", userID))
+		return errors.New("delete service busy, try again later")
 	}
 }
 
@@ -444,11 +452,106 @@ func (s *ShortenerService) deleteWorker(id int) {
 
 	s.logger.Debug("Delete worker started", zap.Int("workerID", id))
 
-	for task := range s.deleteTasks {
-		s.processDeleteTask(task)
+	batch := make([]DeleteTask, 0, s.batchSize)
+	timer := time.NewTimer(s.batchTimeout)
+	defer timer.Stop()
+
+	for {
+		timer.Reset(s.batchTimeout)
+
+		select {
+		case task, ok := <-s.deleteTasks:
+			if !ok {
+				if len(batch) > 0 {
+					s.processBatch(batch)
+				}
+				s.logger.Debug("Delete worker stopped", zap.Int("workerID", id))
+				return
+			}
+
+			batch = append(batch, task)
+
+			if len(batch) >= s.batchSize {
+				s.processBatch(batch)
+				batch = batch[:0]
+				if !timer.Stop() {
+					<-timer.C
+				}
+			}
+
+		case <-timer.C:
+			if len(batch) > 0 {
+				s.processBatch(batch)
+				batch = batch[:0]
+			}
+
+		case <-s.shutdownChan:
+			if len(batch) > 0 {
+				s.processBatch(batch)
+			}
+			s.logger.Debug("Delete worker stopped by shutdown", zap.Int("workerID", id))
+			return
+		}
+	}
+}
+
+func (s *ShortenerService) processBatch(batch []DeleteTask) {
+	if len(batch) == 0 {
+		return
 	}
 
-	s.logger.Debug("Delete worker stopped", zap.Int("workerID", id))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	userToShortIDs := make(map[string][]string)
+	for _, task := range batch {
+		userToShortIDs[task.UserID] = append(userToShortIDs[task.UserID], task.ShortIDs...)
+	}
+
+	if s.useDB && s.pgRepo != nil {
+		for userID, shortIDs := range userToShortIDs {
+			if err := s.pgRepo.DeleteUserURLs(ctx, userID, shortIDs); err != nil {
+				s.logger.Error("Failed to delete URLs in database batch",
+					zap.String("userID", userID),
+					zap.Int("count", len(shortIDs)),
+					zap.Error(err))
+			} else {
+				s.logger.Info("URLs deleted in database batch",
+					zap.String("userID", userID),
+					zap.Int("count", len(shortIDs)))
+			}
+		}
+	} else {
+		s.mu.Lock()
+		for userID, shortIDs := range userToShortIDs {
+			userShortIDs, exists := s.userData[userID]
+			if !exists {
+				continue
+			}
+
+			userShortIDSet := make(map[string]bool)
+			for _, id := range userShortIDs {
+				userShortIDSet[id] = true
+			}
+
+			for _, shortID := range shortIDs {
+				if userShortIDSet[shortID] {
+					s.deletedURLs[shortID] = true
+				}
+			}
+		}
+		s.mu.Unlock()
+
+		s.logger.Info("URLs marked as deleted in memory batch",
+			zap.Int("batchSize", len(batch)))
+	}
+}
+
+func (s *ShortenerService) Close() {
+	close(s.shutdownChan)
+	close(s.deleteTasks)
+	s.wg.Wait()
+	s.logger.Info("All delete workers stopped")
 }
 
 func (s *ShortenerService) processDeleteTask(task DeleteTask) {
@@ -520,10 +623,4 @@ func (s *ShortenerService) GetURLsByShortIDs(ctx context.Context, shortIDs []str
 	}
 
 	return result, nil
-}
-
-func (s *ShortenerService) Close() {
-	close(s.deleteTasks)
-	s.wg.Wait()
-	s.logger.Info("All delete workers stopped")
 }

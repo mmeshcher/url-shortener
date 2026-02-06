@@ -12,7 +12,7 @@ func (h *Handler) SetupRouter() *chi.Mux {
 
 	r.Use(custommiddleware.GzipMiddleware)
 	r.Use(custommiddleware.Logger(h.logger))
-	r.Use(custommiddleware.AuthMiddleware)
+	r.Use(h.authMiddleware.Middleware)
 
 	r.Route("/", func(r chi.Router) {
 		r.Post("/", h.ShortenHandler)

@@ -43,13 +43,13 @@ func main() {
 		"using_database", cfg.DatabaseDSN != "",
 	)
 
-	middleware.InitAuthMiddleware(cfg.SecretKey, logger)
+	authMiddleware := middleware.NewAuthMiddleware(cfg.SecretKey, logger)
 
 	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath, logger, cfg.DatabaseDSN)
 
 	defer shortnerService.Close()
 
-	h := handler.NewHandler(shortnerService, logger)
+	h := handler.NewHandler(shortnerService, logger, authMiddleware)
 
 	r := h.SetupRouter()
 

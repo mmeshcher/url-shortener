@@ -20,7 +20,7 @@ import (
 
 func TestDeleteUserURLsHandler(t *testing.T) {
 	logger := zap.NewNop()
-	middleware.InitAuthMiddleware("test-secret-key", logger)
+	authMiddleware := middleware.NewAuthMiddleware("test-secret-key", logger)
 
 	createTestCookie := func(userID string) *http.Cookie {
 		mac := hmac.New(sha256.New, []byte("test-secret-key"))
@@ -132,7 +132,7 @@ func TestDeleteUserURLsHandler(t *testing.T) {
 				}
 			}
 
-			h := NewHandler(service, logger)
+			h := NewHandler(service, logger, authMiddleware)
 			router := h.SetupRouter()
 
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))

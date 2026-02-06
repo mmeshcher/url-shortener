@@ -47,7 +47,14 @@ func (h *Handler) DeleteUserURLsHandler(rw http.ResponseWriter, r *http.Request)
 		zap.String("userID", userID),
 		zap.Int("count", len(deleteReq)))
 
-	h.service.DeleteUserURLs(userID, deleteReq)
+	if err := h.service.DeleteUserURLs(userID, deleteReq); err != nil {
+		h.logger.Error("Failed to queue delete task",
+			zap.String("userID", userID),
+			zap.Error(err))
+
+		http.Error(rw, "Service unavailable, try again later", http.StatusServiceUnavailable)
+		return
+	}
 
 	rw.WriteHeader(http.StatusAccepted)
 }

@@ -21,7 +21,7 @@ import (
 
 func TestShortenJSONHandler(t *testing.T) {
 	logger := zap.NewNop()
-	middleware.InitAuthMiddleware("test-secret-key", logger)
+	authMiddleware := middleware.NewAuthMiddleware("test-secret-key", logger)
 
 	createTestCookie := func(userID string) *http.Cookie {
 		mac := hmac.New(sha256.New, []byte("test-secret-key"))
@@ -143,7 +143,7 @@ func TestShortenJSONHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := service.NewShortenerService("http://localhost:8080", "", logger, "")
-			h := NewHandler(service, logger)
+			h := NewHandler(service, logger, authMiddleware)
 			router := h.SetupRouter()
 
 			testCookie := createTestCookie(tt.userID)
