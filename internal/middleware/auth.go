@@ -23,33 +23,35 @@ const (
 	cookieExpires = 365 * 24 * time.Hour
 )
 
-var (
+type AuthMiddleware struct {
 	secretKey []byte
 	logger    *zap.Logger
-)
-
-func InitAuthMiddleware(secret string, log *zap.Logger) {
-	secretKey = []byte(secret)
-	logger = log
 }
 
-func AuthMiddleware(next http.Handler) http.Handler {
+func NewAuthMiddleware(secret string, logger *zap.Logger) *AuthMiddleware {
+	return &AuthMiddleware{
+		secretKey: []byte(secret),
+		logger:    logger,
+	}
+}
+
+func (a *AuthMiddleware) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if secretKey == nil || logger == nil {
+		if a.secretKey == nil || a.logger == nil {
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 
-		userID, err := getOrCreateUserID(r)
+		userID, err := a.getOrCreateUserID(r)
 		if err != nil {
-			logger.Error("Failed to get or create user ID", zap.Error(err))
+			a.logger.Error("Failed to get or create user ID", zap.Error(err))
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
 
 		cookie, err := r.Cookie(cookieName)
-		if err != nil || !validateCookie(cookie.Value, userID) {
-			setUserCookie(w, userID)
+		if err != nil || !a.validateCookie(cookie.Value, userID) {
+			a.setUserCookie(w, userID)
 		}
 
 		ctx := r.Context()
@@ -60,14 +62,14 @@ func AuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func getOrCreateUserID(r *http.Request) (string, error) {
+func (a *AuthMiddleware) getOrCreateUserID(r *http.Request) (string, error) {
 	cookie, err := r.Cookie(cookieName)
 	if err != nil {
 		newUserID := uuid.New().String()
 		return newUserID, nil
 	}
 
-	userID, valid := parseCookie(cookie.Value)
+	userID, valid := a.parseCookie(cookie.Value)
 	if !valid {
 		return "", errors.New("invalid cookie signature")
 	}
@@ -75,8 +77,8 @@ func getOrCreateUserID(r *http.Request) (string, error) {
 	return userID, nil
 }
 
-func setUserCookie(w http.ResponseWriter, userID string) {
-	signedValue := signUserID(userID)
+func (a *AuthMiddleware) setUserCookie(w http.ResponseWriter, userID string) {
+	signedValue := a.signUserID(userID)
 
 	cookie := &http.Cookie{
 		Name:     cookieName,
@@ -91,14 +93,14 @@ func setUserCookie(w http.ResponseWriter, userID string) {
 	http.SetCookie(w, cookie)
 }
 
-func signUserID(userID string) string {
-	mac := hmac.New(sha256.New, secretKey)
+func (a *AuthMiddleware) signUserID(userID string) string {
+	mac := hmac.New(sha256.New, a.secretKey)
 	mac.Write([]byte(userID))
 	signature := mac.Sum(nil)
 	return userID + "." + hex.EncodeToString(signature)
 }
 
-func parseCookie(cookieValue string) (string, bool) {
+func (a *AuthMiddleware) parseCookie(cookieValue string) (string, bool) {
 	parts := strings.Split(cookieValue, ".")
 	if len(parts) != 2 {
 		return "", false
@@ -107,7 +109,7 @@ func parseCookie(cookieValue string) (string, bool) {
 	userID := parts[0]
 	signature := parts[1]
 
-	expectedSignature := signUserID(userID)
+	expectedSignature := a.signUserID(userID)
 	expectedParts := strings.Split(expectedSignature, ".")
 	if len(expectedParts) != 2 {
 		return "", false
@@ -120,8 +122,8 @@ func parseCookie(cookieValue string) (string, bool) {
 	return userID, true
 }
 
-func validateCookie(cookieValue, expectedUserID string) bool {
-	userID, valid := parseCookie(cookieValue)
+func (a *AuthMiddleware) validateCookie(cookieValue, expectedUserID string) bool {
+	userID, valid := a.parseCookie(cookieValue)
 	if !valid {
 		return false
 	}

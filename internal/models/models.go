@@ -29,4 +29,14 @@ type UserURL struct {
 	OriginalURL string `json:"original_url"`
 }
 
+type Storage struct {
+	UUID        string `db:"uuid"`
+	UserID      string `db:"user_id"`
+	ShortURL    string `db:"short_url"`
+	OriginalURL string `db:"original_url"`
+	IsDeleted   bool   `db:"is_deleted"`
+	CreatedAt   string `db:"created_at,omitempty"`
+}
+
 type UserURLsResponse []UserURL
+type DeleteRequest []string

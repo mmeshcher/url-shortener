@@ -99,7 +99,7 @@ func runMigrations(dsn string) error {
 	return nil
 }
 
-func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL, userID string) (bool, error) {
+func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL, userID string) (string, bool, error) {
 	query, args, err := p.sb.
 		Insert("urls").
 		Columns("short_id", "original_url", "user_id").
@@ -107,30 +107,37 @@ func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL, 
 		Suffix("ON CONFLICT (original_url) DO NOTHING").
 		ToSql()
 	if err != nil {
-		return false, fmt.Errorf("build query: %w", err)
+		return "", false, fmt.Errorf("build query: %w", err)
 	}
 
 	cmdTag, err := p.pool.Exec(ctx, query, args...)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
-			return true, nil
+			return "", true, nil
 		}
-		return false, fmt.Errorf("execute query: %w", err)
+		return "", false, fmt.Errorf("execute query: %w", err)
 	}
 
 	if cmdTag.RowsAffected() == 0 {
-		return true, nil
+		existingID, err := p.GetShortID(ctx, originalURL)
+		if err != nil {
+			return "", true, err
+		}
+		return existingID, true, nil
 	}
 
-	return false, nil
+	return shortID, false, nil
 }
 
 func (p *PostgresRepository) GetUserURLs(ctx context.Context, userID string) ([]models.UserURL, error) {
 	query, args, err := p.sb.
 		Select("short_id", "original_url").
 		From("urls").
-		Where(squirrel.Eq{"user_id": userID}).
+		Where(squirrel.And{
+			squirrel.Eq{"user_id": userID},
+			squirrel.Eq{"is_deleted": false},
+		}).
 		OrderBy("created_at DESC").
 		ToSql()
 	if err != nil {
@@ -167,27 +174,31 @@ func (p *PostgresRepository) GetShortIDForOriginalURL(ctx context.Context, origi
 	return p.GetShortID(ctx, originalURL)
 }
 
-func (p *PostgresRepository) GetOriginalURL(ctx context.Context, shortID string) (string, error) {
+func (p *PostgresRepository) GetOriginalURL(ctx context.Context, shortID string) (string, bool, error) {
 	query, args, err := p.sb.
-		Select("original_url").
+		Select("original_url", "is_deleted").
 		From("urls").
 		Where(squirrel.Eq{"short_id": shortID}).
 		ToSql()
-
 	if err != nil {
-		return "", fmt.Errorf("build query: %w", err)
+		return "", false, fmt.Errorf("build query: %w", err)
 	}
 
 	var originalURL string
-	err = p.pool.QueryRow(ctx, query, args...).Scan(&originalURL)
+	var isDeleted bool
+	err = p.pool.QueryRow(ctx, query, args...).Scan(&originalURL, &isDeleted)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", fmt.Errorf("not found: %w", err)
+			return "", false, nil
 		}
-		return "", fmt.Errorf("query row: %w", err)
+		return "", false, fmt.Errorf("query row: %w", err)
 	}
 
-	return originalURL, nil
+	if isDeleted {
+		return "", true, nil
+	}
+
+	return originalURL, false, nil
 }
 
 func (p *PostgresRepository) GetShortID(ctx context.Context, originalURL string) (string, error) {
@@ -306,9 +317,9 @@ func (p *PostgresRepository) insertURLsInTransaction(ctx context.Context, tx pgx
 
 	insertBuilder := p.sb.
 		Insert("urls").
-		Columns("short_id", "original_url")
+		Columns("short_id", "original_url", "user_id")
 	for _, item := range urls {
-		insertBuilder = insertBuilder.Values(item.ShortID, item.OriginalURL)
+		insertBuilder = insertBuilder.Values(item.ShortID, item.OriginalURL, item.UserID)
 	}
 
 	query, args, err := insertBuilder.Suffix("ON CONFLICT (original_url) DO NOTHING").ToSql()
@@ -324,7 +335,70 @@ func (p *PostgresRepository) insertURLsInTransaction(ctx context.Context, tx pgx
 	return nil
 }
 
+func (p *PostgresRepository) DeleteUserURLs(ctx context.Context, userID string, shortIDs []string) error {
+	if len(shortIDs) == 0 {
+		return nil
+	}
+
+	query, args, err := p.sb.
+		Update("urls").
+		Set("is_deleted", true).
+		Where(squirrel.And{
+			squirrel.Eq{"user_id": userID},
+			squirrel.Eq{"short_id": shortIDs},
+		}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build query: %w", err)
+	}
+
+	_, err = p.pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("delete URLs: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostgresRepository) GetURLsByShortIDs(ctx context.Context, shortIDs []string) (map[string]models.Storage, error) {
+	if len(shortIDs) == 0 {
+		return make(map[string]models.Storage), nil
+	}
+
+	query, args, err := p.sb.
+		Select("short_id", "user_id", "original_url", "is_deleted").
+		From("urls").
+		Where(squirrel.Eq{"short_id": shortIDs}).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	rows, err := p.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query URLs: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]models.Storage)
+	for rows.Next() {
+		var storage models.Storage
+		err := rows.Scan(&storage.ShortURL, &storage.UserID, &storage.OriginalURL, &storage.IsDeleted)
+		if err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+		result[storage.ShortURL] = storage
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return result, nil
+}
+
 type BatchItem struct {
 	ShortID     string
 	OriginalURL string
+	UserID      string
 }
