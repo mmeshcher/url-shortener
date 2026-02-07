@@ -30,6 +30,7 @@ type ShortenerService struct {
 	saveMu      sync.Mutex
 	data        map[string]string
 	reverseData map[string]string
+	userData    map[string][]string
 	baseURL     string
 	storagePath string
 	logger      *zap.Logger
@@ -41,6 +42,7 @@ func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databa
 	service := &ShortenerService{
 		data:        make(map[string]string),
 		reverseData: make(map[string]string),
+		userData:    make(map[string][]string),
 		baseURL:     baseURL,
 		storagePath: storagePath,
 		logger:      logger,
@@ -48,7 +50,7 @@ func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databa
 	}
 
 	if service.useDB {
-		pgRepo, err := repository.NewPostgresRepository(databaseDSN)
+		pgRepo, err := repository.NewPostgresRepository(databaseDSN, baseURL)
 		if err != nil {
 			logger.Error("Failed to connect to PostgreSQL, using file storage", zap.Error(err))
 			service.useDB = false
@@ -72,7 +74,7 @@ func (s *ShortenerService) GenerateShortID() string {
 	return base64.URLEncoding.EncodeToString(bytes)[:8]
 }
 
-func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
+func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL, userID string) (string, error) {
 	if originalURL == "" {
 		s.logger.Warn("Attempt to create short URL for empty string")
 		return "", ErrEmptyURL
@@ -86,7 +88,7 @@ func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL strin
 	if s.useDB && s.pgRepo != nil {
 		shortID := s.GenerateShortID()
 
-		hasConflict, err := s.pgRepo.SaveURL(ctx, shortID, originalURL)
+		hasConflict, err := s.pgRepo.SaveURL(ctx, shortID, originalURL, userID)
 		if err != nil {
 			s.logger.Error("Failed to save URL to database", zap.Error(err))
 			return "", err
@@ -133,12 +135,41 @@ func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL strin
 	s.data[shortID] = originalURL
 	s.reverseData[originalURL] = shortID
 
+	if userID != "" {
+		s.userData[userID] = append(s.userData[userID], shortID)
+	}
+
 	go func() {
 		s.saveToFile()
 	}()
 
 	fullURL, _ := url.JoinPath(s.baseURL, shortID)
 	return fullURL, nil
+}
+
+func (s *ShortenerService) GetUserURLs(ctx context.Context, userID string) ([]models.UserURL, error) {
+	if s.useDB && s.pgRepo != nil {
+		return s.pgRepo.GetUserURLs(ctx, userID)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if shortIDs, exists := s.userData[userID]; exists {
+		var userURLs []models.UserURL
+		for _, shortID := range shortIDs {
+			if originalURL, ok := s.data[shortID]; ok {
+				shortURL, _ := url.JoinPath(s.baseURL, shortID)
+				userURLs = append(userURLs, models.UserURL{
+					ShortURL:    shortURL,
+					OriginalURL: originalURL,
+				})
+			}
+		}
+		return userURLs, nil
+	}
+
+	return []models.UserURL{}, nil
 }
 
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool) {
@@ -177,8 +208,13 @@ func (s *ShortenerService) saveToFile() {
 
 	s.mu.RLock()
 	data := make(map[string]string, len(s.data))
+	userData := make(map[string][]string, len(s.userData))
+
 	for k, v := range s.data {
 		data[k] = v
+	}
+	for k, v := range s.userData {
+		userData[k] = append([]string{}, v...)
 	}
 	s.mu.RUnlock()
 
@@ -186,12 +222,29 @@ func (s *ShortenerService) saveToFile() {
 		return
 	}
 
-	records := make([]models.URLRecord, 0, len(data))
+	type URLRecordWithUser struct {
+		UUID        string `json:"uuid"`
+		ShortURL    string `json:"short_url"`
+		OriginalURL string `json:"original_url"`
+		UserID      string `json:"user_id,omitempty"`
+	}
+
+	records := make([]URLRecordWithUser, 0, len(data))
+
+	shortIDToUserID := make(map[string]string)
+	for userID, shortIDs := range userData {
+		for _, shortID := range shortIDs {
+			shortIDToUserID[shortID] = userID
+		}
+	}
+
 	for shortID, originalURL := range data {
-		records = append(records, models.URLRecord{
+		userID := shortIDToUserID[shortID]
+		records = append(records, URLRecordWithUser{
 			UUID:        uuid.New().String(),
 			ShortURL:    shortID,
 			OriginalURL: originalURL,
+			UserID:      userID,
 		})
 	}
 
@@ -221,8 +274,15 @@ func (s *ShortenerService) loadFromFile() {
 		return
 	}
 
-	var records []models.URLRecord
-	if json.Unmarshal(data, &records) != nil {
+	type URLRecordWithUser struct {
+		UUID        string `json:"uuid"`
+		ShortURL    string `json:"short_url"`
+		OriginalURL string `json:"original_url"`
+		UserID      string `json:"user_id,omitempty"`
+	}
+
+	var records []URLRecordWithUser
+	if err := json.Unmarshal(data, &records); err != nil {
 		s.logger.Error("Failed to parse storage file", zap.Error(err))
 		return
 	}
@@ -231,22 +291,25 @@ func (s *ShortenerService) loadFromFile() {
 	for _, record := range records {
 		s.data[record.ShortURL] = record.OriginalURL
 		s.reverseData[record.OriginalURL] = record.ShortURL
+
+		if record.UserID != "" {
+			s.userData[record.UserID] = append(s.userData[record.UserID], record.ShortURL)
+		}
 	}
 	s.mu.Unlock()
 }
 
-func (s *ShortenerService) CreateShortURLBatch(ctx context.Context, batch []models.BatchRequest) ([]models.BatchResponse, error) {
+func (s *ShortenerService) CreateShortURLBatch(ctx context.Context, batch []models.BatchRequest, userID string) ([]models.BatchResponse, error) {
 	if len(batch) == 0 {
 		return nil, ErrEmptyBatch
 	}
 
 	response := make([]models.BatchResponse, 0, len(batch))
-	validCount := 0
 
 	for _, item := range batch {
-		shortURL, err := s.CreateShortURL(ctx, item.OriginalURL)
+		shortURL, err := s.CreateShortURL(ctx, item.OriginalURL, userID)
 
-		if err != nil && !errors.Is(err, ErrURLAlreadyExists) && shortURL == "" {
+		if err != nil && !errors.Is(err, ErrURLAlreadyExists) {
 			continue
 		}
 
@@ -254,10 +317,9 @@ func (s *ShortenerService) CreateShortURLBatch(ctx context.Context, batch []mode
 			CorrelationID: item.CorrelationID,
 			ShortURL:      shortURL,
 		})
-		validCount++
 	}
 
-	if validCount == 0 {
+	if len(response) == 0 {
 		return nil, ErrNoValidURLs
 	}
 

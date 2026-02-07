@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"go.uber.org/zap"
 )
@@ -18,7 +19,14 @@ func (h *Handler) ShortenHandler(rw http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	originalURL := string(body)
-	shortURL, err := h.service.CreateShortURL(r.Context(), originalURL)
+	ctx := r.Context()
+	userID, ok := middleware.GetUserIDFromContext(ctx)
+	if !ok || userID == "" {
+		http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+
+	shortURL, err := h.service.CreateShortURL(r.Context(), originalURL, userID)
 
 	if err != nil {
 		if errors.Is(err, service.ErrURLAlreadyExists) {
