@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/mmeshcher/url-shortener/internal/audit"
+	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"go.uber.org/zap"
 )
 
@@ -27,6 +29,9 @@ func (h *Handler) RedirectHandler(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		return
 	}
+
+	userID, _ := middleware.GetUserIDFromContext(r.Context())
+	h.auditor.Audit(audit.ActionFollow, userID, originalURL)
 
 	rw.Header().Set("Location", originalURL)
 	rw.WriteHeader(http.StatusTemporaryRedirect)

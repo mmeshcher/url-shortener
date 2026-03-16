@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/models"
 	"github.com/mmeshcher/url-shortener/internal/service"
@@ -43,6 +44,7 @@ func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if errors.Is(err, service.ErrURLAlreadyExists) {
+			h.auditor.Audit(audit.ActionShorten, userID, req.URL)
 			resp := models.ShortenResponse{
 				Result: shortURL,
 			}
@@ -69,6 +71,7 @@ func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.auditor.Audit(audit.ActionShorten, userID, req.URL)
 	resp := models.ShortenResponse{
 		Result: shortURL,
 	}

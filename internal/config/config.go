@@ -13,6 +13,8 @@ type Config struct {
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	DatabaseDSN     string `env:"DATABASE_DSN"`
 	SecretKey       string `env:"SECRET_KEY"`
+	AuditFile       string `env:"AUDIT_FILE"`
+	AuditURL        string `env:"AUDIT_URL"`
 }
 
 func ParseFlags() (*Config, error) {
@@ -27,12 +29,16 @@ func ParseFlags() (*Config, error) {
 	envFileStoragePath := cfg.FileStoragePath
 	envDatabaseDSN := cfg.DatabaseDSN
 	envSecretKey := cfg.SecretKey
+	envAuditFile := cfg.AuditFile
+	envAuditURL := cfg.AuditURL
 
 	flag.StringVar(&cfg.ServerAddress, "a", "localhost:8080", "Address of the server")
 	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "Base URL for short URLs")
 	flag.StringVar(&cfg.FileStoragePath, "file-storage-path", "url_storage.json", "Path to file storage")
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", "Database connection string")
 	flag.StringVar(&cfg.SecretKey, "s", "secret-key", "Secret key for signing cookies")
+	flag.StringVar(&cfg.AuditFile, "audit-file", "", "Path to audit file")
+	flag.StringVar(&cfg.AuditURL, "audit-url", "", "URL for audit remote server")
 
 	flag.Parse()
 
@@ -50,6 +56,12 @@ func ParseFlags() (*Config, error) {
 	}
 	if envSecretKey != "" {
 		cfg.SecretKey = envSecretKey
+	}
+	if envAuditFile != "" {
+		cfg.AuditFile = envAuditFile
+	}
+	if envAuditURL != "" {
+		cfg.AuditURL = envAuditURL
 	}
 
 	cfg.applyDefaultValues()
