@@ -58,3 +58,37 @@ func TestShortenerService(t *testing.T) {
 		assert.ErrorIs(t, err, ErrURLAlreadyExists)
 	})
 }
+
+func BenchmarkCreateShortURL(b *testing.B) {
+	logger := zap.NewNop()
+	s := NewShortenerService("http://localhost:8080", "", logger, "")
+	ctx := context.Background()
+	userID := "user1"
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		url := "https://example.com/" + string(rune(i))
+		s.CreateShortURL(ctx, url, userID)
+	}
+}
+
+func BenchmarkGetOriginalURL(b *testing.B) {
+	logger := zap.NewNop()
+	s := NewShortenerService("http://localhost:8080", "", logger, "")
+	ctx := context.Background()
+	userID := "user1"
+	url := "https://example.com"
+	_, _ = s.CreateShortURL(ctx, url, userID)
+
+	// Extract shortID
+	var shortID string
+	for id := range s.data {
+		shortID = id
+		break
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.GetOriginalURL(shortID)
+	}
+}

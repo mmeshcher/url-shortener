@@ -53,8 +53,8 @@ func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 			rw.WriteHeader(http.StatusConflict)
 
 			encoder := json.NewEncoder(rw)
-			if err := encoder.Encode(resp); err != nil {
-				h.logger.Error("Failed to encode conflict response", zap.Error(err))
+			if encErr := encoder.Encode(resp); encErr != nil {
+				h.logger.Error("Failed to encode conflict response", zap.Error(encErr))
 				http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			}
 			return
@@ -80,8 +80,8 @@ func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusCreated)
 
 	encoder := json.NewEncoder(rw)
-	if err := encoder.Encode(resp); err != nil {
-		h.logger.Error("Failed to encode response", zap.Error(err))
+	if encErr := encoder.Encode(resp); encErr != nil {
+		h.logger.Error("Failed to encode response", zap.Error(encErr))
 		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
