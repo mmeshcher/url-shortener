@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// ShortenJSONHandler handles POST requests to shorten a URL provided in a JSON request body.
 func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-Type")
 	if contentType != "application/json" {

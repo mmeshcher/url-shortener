@@ -8,6 +8,7 @@ import (
 	custommiddleware "github.com/mmeshcher/url-shortener/internal/middleware"
 )
 
+// SetupRouter initializes the chi router with all the service routes and middleware.
 func (h *Handler) SetupRouter() *chi.Mux {
 	r := chi.NewRouter()
 

@@ -1,3 +1,4 @@
+// Package main is a simple command-line client for interacting with the URL shortener service.
 package main
 
 import (

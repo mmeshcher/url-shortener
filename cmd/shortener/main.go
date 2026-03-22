@@ -1,3 +1,5 @@
+// Package main is the entry point for the URL shortener server application.
+// It initializes configuration, logging, auditing, and starts the HTTP server.
 package main
 
 import (
