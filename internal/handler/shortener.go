@@ -5,11 +5,13 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"go.uber.org/zap"
 )
 
+// ShortenHandler handles POST requests to shorten a URL provided in the request body as plain text.
 func (h *Handler) ShortenHandler(rw http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil || len(body) == 0 {
@@ -30,6 +32,7 @@ func (h *Handler) ShortenHandler(rw http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if errors.Is(err, service.ErrURLAlreadyExists) {
+			h.auditor.Audit(audit.ActionShorten, userID, originalURL)
 			rw.Header().Set("Content-Type", "text/plain")
 			rw.WriteHeader(http.StatusConflict)
 			rw.Write([]byte(shortURL))
@@ -46,6 +49,7 @@ func (h *Handler) ShortenHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.auditor.Audit(audit.ActionShorten, userID, originalURL)
 	rw.Header().Set("Content-Type", "text/plain")
 	rw.WriteHeader(http.StatusCreated)
 	rw.Write([]byte(shortURL))

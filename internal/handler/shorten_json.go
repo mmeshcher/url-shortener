@@ -5,12 +5,14 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/models"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"go.uber.org/zap"
 )
 
+// ShortenJSONHandler handles POST requests to shorten a URL provided in a JSON request body.
 func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-Type")
 	if contentType != "application/json" {
@@ -43,6 +45,7 @@ func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if errors.Is(err, service.ErrURLAlreadyExists) {
+			h.auditor.Audit(audit.ActionShorten, userID, req.URL)
 			resp := models.ShortenResponse{
 				Result: shortURL,
 			}
@@ -51,8 +54,8 @@ func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 			rw.WriteHeader(http.StatusConflict)
 
 			encoder := json.NewEncoder(rw)
-			if err := encoder.Encode(resp); err != nil {
-				h.logger.Error("Failed to encode conflict response", zap.Error(err))
+			if encErr := encoder.Encode(resp); encErr != nil {
+				h.logger.Error("Failed to encode conflict response", zap.Error(encErr))
 				http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			}
 			return
@@ -69,6 +72,7 @@ func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.auditor.Audit(audit.ActionShorten, userID, req.URL)
 	resp := models.ShortenResponse{
 		Result: shortURL,
 	}
@@ -77,8 +81,8 @@ func (h *Handler) ShortenJSONHandler(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusCreated)
 
 	encoder := json.NewEncoder(rw)
-	if err := encoder.Encode(resp); err != nil {
-		h.logger.Error("Failed to encode response", zap.Error(err))
+	if encErr := encoder.Encode(resp); encErr != nil {
+		h.logger.Error("Failed to encode response", zap.Error(encErr))
 		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}

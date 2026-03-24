@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +21,7 @@ import (
 func TestShortenHandler(t *testing.T) {
 	logger := zap.NewNop()
 	authMiddleware := middleware.NewAuthMiddleware("test-secret-key", logger)
+	auditor := audit.NewAuditor()
 
 	createTestCookie := func(userID string) *http.Cookie {
 		mac := hmac.New(sha256.New, []byte("test-secret-key"))
@@ -118,8 +120,11 @@ func TestShortenHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := service.NewShortenerService("http://localhost:8080", "", logger, "")
-			h := NewHandler(service, logger, authMiddleware)
+			s := service.NewShortenerService("http://localhost:8080", "", logger, "")
+			if tt.setup != nil {
+				tt.setup(s)
+			}
+			h := NewHandler(s, logger, authMiddleware, auditor)
 			router := h.SetupRouter()
 
 			testCookie := createTestCookie(tt.userID)
@@ -174,5 +179,33 @@ func TestShortenHandler(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func BenchmarkShortenHandler(b *testing.B) {
+	logger := zap.NewNop()
+	authMiddleware := middleware.NewAuthMiddleware("test-secret-key", logger)
+	auditor := audit.NewAuditor()
+	s := service.NewShortenerService("http://localhost:8080", "", logger, "")
+	h := NewHandler(s, logger, authMiddleware, auditor)
+	router := h.SetupRouter()
+
+	mac := hmac.New(sha256.New, []byte("test-secret-key"))
+	mac.Write([]byte("user1"))
+	signature := mac.Sum(nil)
+	signedValue := "user1." + hex.EncodeToString(signature)
+	testCookie := &http.Cookie{
+		Name:  "user_id",
+		Value: signedValue,
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		url := "https://example.com/" + string(rune(i))
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(url))
+		req.Header.Set("Content-Type", "text/plain")
+		req.AddCookie(testCookie)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
 	}
 }

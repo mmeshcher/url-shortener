@@ -1,3 +1,5 @@
+// Package main is the entry point for the URL shortener server application.
+// It initializes configuration, logging, auditing, and starts the HTTP server.
 package main
 
 import (
@@ -10,6 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/config"
 	"github.com/mmeshcher/url-shortener/internal/handler"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
@@ -41,7 +44,19 @@ func main() {
 		"base_url", cfg.BaseURL,
 		"file_storage_path", cfg.FileStoragePath,
 		"using_database", cfg.DatabaseDSN != "",
+		"audit_file", cfg.AuditFile,
+		"audit_url", cfg.AuditURL,
 	)
+
+	auditor := audit.NewAuditor()
+	if cfg.AuditFile != "" {
+		auditor.Register(audit.NewFileObserver(cfg.AuditFile))
+		sugar.Infow("Audit file observer registered", "path", cfg.AuditFile)
+	}
+	if cfg.AuditURL != "" {
+		auditor.Register(audit.NewURLObserver(cfg.AuditURL))
+		sugar.Infow("Audit URL observer registered", "url", cfg.AuditURL)
+	}
 
 	authMiddleware := middleware.NewAuthMiddleware(cfg.SecretKey, logger)
 
@@ -49,7 +64,7 @@ func main() {
 
 	defer shortnerService.Close()
 
-	h := handler.NewHandler(shortnerService, logger, authMiddleware)
+	h := handler.NewHandler(shortnerService, logger, authMiddleware, auditor)
 
 	r := h.SetupRouter()
 

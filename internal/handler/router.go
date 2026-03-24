@@ -2,17 +2,30 @@ package handler
 
 import (
 	"net/http"
+	"net/http/pprof"
 
 	"github.com/go-chi/chi/v5"
 	custommiddleware "github.com/mmeshcher/url-shortener/internal/middleware"
 )
 
+// SetupRouter initializes the chi router with all the service routes and middleware.
 func (h *Handler) SetupRouter() *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(custommiddleware.GzipMiddleware)
 	r.Use(custommiddleware.Logger(h.logger))
 	r.Use(h.authMiddleware.Middleware)
+
+	r.HandleFunc("/debug/pprof/", pprof.Index)
+	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	r.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	r.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	r.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
+	r.Handle("/debug/pprof/block", pprof.Handler("block"))
+	r.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
 
 	r.Route("/", func(r chi.Router) {
 		r.Post("/", h.ShortenHandler)

@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// GetUserURLsHandler handles GET requests to retrieve all short URLs created by the authenticated user.
 func (h *Handler) GetUserURLsHandler(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID, ok := middleware.GetUserIDFromContext(ctx)
