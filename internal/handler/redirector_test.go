@@ -11,6 +11,7 @@ import (
 
 	"io"
 
+	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,7 @@ import (
 func TestRedirectHandler(t *testing.T) {
 	logger := zap.NewNop()
 	authMiddleware := middleware.NewAuthMiddleware("test-secret-key", logger)
+	auditor := audit.NewAuditor()
 
 	createTestCookie := func(userID string) *http.Cookie {
 		mac := hmac.New(sha256.New, []byte("test-secret-key"))
@@ -115,7 +117,7 @@ func TestRedirectHandler(t *testing.T) {
 
 			w := httptest.NewRecorder()
 
-			h := NewHandler(service, logger, authMiddleware)
+			h := NewHandler(service, logger, authMiddleware, auditor)
 			r := h.SetupRouter()
 
 			r.ServeHTTP(w, request)

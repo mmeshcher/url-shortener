@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/models"
 	"github.com/mmeshcher/url-shortener/internal/service"
@@ -22,6 +23,7 @@ import (
 func TestGetUserURLsHandler(t *testing.T) {
 	logger := zap.NewNop()
 	authMiddleware := middleware.NewAuthMiddleware("test-secret-key", logger)
+	auditor := audit.NewAuditor()
 
 	createTestCookie := func(userID string) *http.Cookie {
 		mac := hmac.New(sha256.New, []byte("test-secret-key"))
@@ -134,7 +136,7 @@ func TestGetUserURLsHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := service.NewShortenerService("http://localhost:8080", "", logger, "")
-			h := NewHandler(service, logger, authMiddleware)
+			h := NewHandler(service, logger, authMiddleware, auditor)
 			router := h.SetupRouter()
 
 			if tt.userID != "" && len(tt.setupURL) > 0 {
