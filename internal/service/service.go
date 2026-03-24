@@ -121,20 +121,17 @@ func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL, user
 		}
 
 		if hasConflict {
-			fullURL, _ := url.JoinPath(s.baseURL, savedShortID)
-			return fullURL, ErrURLAlreadyExists
+			return s.baseURL + "/" + savedShortID, ErrURLAlreadyExists
 		}
 
-		fullURL, _ := url.JoinPath(s.baseURL, shortID)
-		return fullURL, nil
+		return s.baseURL + "/" + shortID, nil
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if shortID, exists := s.reverseData[originalURL]; exists {
-		fullURL, _ := url.JoinPath(s.baseURL, shortID)
-		return fullURL, ErrURLAlreadyExists
+		return s.baseURL + "/" + shortID, ErrURLAlreadyExists
 	}
 
 	const maxAttempts = 10
@@ -164,8 +161,7 @@ func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL, user
 		s.saveToFile()
 	}()
 
-	fullURL, _ := url.JoinPath(s.baseURL, shortID)
-	return fullURL, nil
+	return s.baseURL + "/" + shortID, nil
 }
 
 func (s *ShortenerService) GetUserURLs(ctx context.Context, userID string) ([]models.UserURL, error) {
@@ -177,12 +173,11 @@ func (s *ShortenerService) GetUserURLs(ctx context.Context, userID string) ([]mo
 	defer s.mu.RUnlock()
 
 	if shortIDs, exists := s.userData[userID]; exists {
-		var userURLs []models.UserURL
+		userURLs := make([]models.UserURL, 0, len(shortIDs))
 		for _, shortID := range shortIDs {
 			if originalURL, ok := s.data[shortID]; ok {
-				shortURL, _ := url.JoinPath(s.baseURL, shortID)
 				userURLs = append(userURLs, models.UserURL{
-					ShortURL:    shortURL,
+					ShortURL:    s.baseURL + "/" + shortID,
 					OriginalURL: originalURL,
 				})
 			}

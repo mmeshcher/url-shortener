@@ -42,3 +42,51 @@ git fetch template && git checkout template/v2 .github
 - **Clean Architecture**
 - **Hexagonal Architecture**
 - **Layered Architecture**
+
+## Анализ производительности и оптимизация
+
+### Бенчмарки
+Для измерения скорости выполнения ключевых компонентов были добавлены бенчмарки:
+- `BenchmarkCreateShortURL`: измерение скорости создания коротких URL.
+- `BenchmarkGetOriginalURL`: измерение скорости получения оригинальных URL.
+- `BenchmarkShortenHandler`: измерение производительности HTTP-хэндлера.
+
+Пример результатов:
+```text
+BenchmarkCreateShortURL-16        575186              2025 ns/op
+BenchmarkGetOriginalURL-16      80446207                16.33 ns/op
+BenchmarkShortenHandler-16        104108             11221 ns/op
+```
+
+Запуск бенчмарков:
+```bash
+go test -bench . ./internal/service/...
+go test -bench . ./internal/handler/...
+```
+
+### Профилирование памяти (pprof)
+В проект интегрирован `net/http/pprof` для анализа потребления ресурсов. 
+
+#### Результаты оптимизации
+Были выявлены и исправлены следующие неэффективные участки:
+1. Замена `url.JoinPath` на конкатенацию строк в горячих путях (создание URL), что уменьшило количество аллокаций.
+2. Использование `make([]T, 0, capacity)` с предустановленной емкостью в `GetUserURLs` для исключения лишних реаллокаций слайса.
+
+Сравнение профилей (`go tool pprof -top -diff_base profiles/base.pprof profiles/result.pprof`):
+```text
+File: main.exe
+Type: inuse_space
+Time: 2026-03-17 21:14:35 MSK
+Showing nodes accounting for 534.32kB, 20.85% of 2563.15kB total
+      flat  flat%   sum%        cum   cum%
+ -512.10kB 19.98% 40.82%  -512.10kB 19.98%  net.init
+ -512.05kB 19.98% 20.85%  -512.05kB 19.98%  runtime.acquireSudog
+         0     0% 20.85%  -512.05kB 19.98%  runtime.gcBgMarkWorker
+         0     0% 20.85%  -512.05kB 19.98%  runtime.gcMarkDone
+         0     0% 20.85%  -512.05kB 19.98%  runtime.semacquire (inline)
+         0     0% 20.85%  -512.05kB 19.98%  runtime.semacquire1
+```
+
+Результаты профилирования сохранены в директории `profiles/`.
+
+
