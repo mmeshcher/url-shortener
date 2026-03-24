@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// DeleteUserURLsHandler handles DELETE requests to mark multiple short URLs as deleted for the authenticated user.
 func (h *Handler) DeleteUserURLsHandler(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(rw, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)

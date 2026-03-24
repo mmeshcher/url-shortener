@@ -1,3 +1,4 @@
+// Package service provides the business logic for URL shortening, storage, and retrieval.
 package service
 
 import (
@@ -26,11 +27,13 @@ var (
 	ErrGenerateID       = errors.New("failed to generate unique id")
 )
 
+// DeleteTask represents a background job to mark multiple short URLs as deleted for a user.
 type DeleteTask struct {
-	UserID   string
-	ShortIDs []string
+	UserID   string   // ID of the user who owns the URLs.
+	ShortIDs []string // List of short URL IDs to be deleted.
 }
 
+// ShortenerService handles URL shortening logic and interacts with the storage layer.
 type ShortenerService struct {
 	mu          sync.RWMutex
 	saveMu      sync.Mutex
@@ -52,6 +55,7 @@ type ShortenerService struct {
 	shutdownChan chan struct{}
 }
 
+// NewShortenerService creates and initializes a new ShortenerService.
 func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databaseDSN string) *ShortenerService {
 	service := &ShortenerService{
 		data:         make(map[string]string),
@@ -93,12 +97,15 @@ func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databa
 	return service
 }
 
+// GenerateShortID creates a random 8-character string for short URL identification.
 func (s *ShortenerService) GenerateShortID() string {
 	bytes := make([]byte, 8)
 	rand.Read(bytes)
 	return base64.URLEncoding.EncodeToString(bytes)[:8]
 }
 
+// CreateShortURL shortens a single URL and associates it with a user.
+// It returns the full short URL. If the URL already exists, it returns ErrURLAlreadyExists.
 func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL, userID string) (string, error) {
 	if originalURL == "" {
 		s.logger.Warn("Attempt to create short URL for empty string")
@@ -164,6 +171,7 @@ func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL, user
 	return s.baseURL + "/" + shortID, nil
 }
 
+// GetUserURLs returns a list of all URLs created by the specified user.
 func (s *ShortenerService) GetUserURLs(ctx context.Context, userID string) ([]models.UserURL, error) {
 	if s.useDB && s.pgRepo != nil {
 		return s.pgRepo.GetUserURLs(ctx, userID)
@@ -188,6 +196,8 @@ func (s *ShortenerService) GetUserURLs(ctx context.Context, userID string) ([]mo
 	return []models.UserURL{}, nil
 }
 
+// GetOriginalURL retrieves the original URL corresponding to the given short ID.
+// It returns the original URL, a boolean indicating if it exists, and a boolean indicating if it was deleted.
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool, bool) {
 	if s.useDB && s.pgRepo != nil {
 		ctx := context.Background()
@@ -212,6 +222,7 @@ func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool, bool) {
 	return originalURL, exists, false
 }
 
+// Ping checks the availability of the storage layer (e.g., database).
 func (s *ShortenerService) Ping() error {
 	if s.useDB && s.pgRepo != nil {
 		ctx := context.Background()
@@ -221,6 +232,7 @@ func (s *ShortenerService) Ping() error {
 	return nil
 }
 
+// saveToFile persists the in-memory URL data to the storage file.
 func (s *ShortenerService) saveToFile() {
 	if s.storagePath == "" {
 		return
@@ -280,6 +292,7 @@ func (s *ShortenerService) saveToFile() {
 	os.WriteFile(s.storagePath, jsonData, 0644)
 }
 
+// loadFromFile reads URL data from the storage file into memory.
 func (s *ShortenerService) loadFromFile() {
 	if s.storagePath == "" {
 		return
@@ -322,6 +335,7 @@ func (s *ShortenerService) loadFromFile() {
 	s.mu.Unlock()
 }
 
+// CreateShortURLBatch shortens multiple URLs in a single request.
 func (s *ShortenerService) CreateShortURLBatch(ctx context.Context, batch []models.BatchRequest, userID string) ([]models.BatchResponse, error) {
 	if len(batch) == 0 {
 		return nil, ErrEmptyBatch
@@ -349,6 +363,7 @@ func (s *ShortenerService) CreateShortURLBatch(ctx context.Context, batch []mode
 	return response, nil
 }
 
+// createBatchWithPostgres handles batch shortening using PostgreSQL storage.
 func (s *ShortenerService) createBatchWithPostgres(batch []models.BatchRequest) ([]models.BatchResponse, error) {
 	ctx := context.Background()
 
@@ -380,6 +395,7 @@ func (s *ShortenerService) createBatchWithPostgres(batch []models.BatchRequest) 
 	return response, nil
 }
 
+// createBatchWithMemory handles batch shortening using in-memory storage.
 func (s *ShortenerService) createBatchWithMemory(batch []models.BatchRequest) ([]models.BatchResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -419,6 +435,7 @@ func (s *ShortenerService) createBatchWithMemory(batch []models.BatchRequest) ([
 	return response, nil
 }
 
+// DeleteUserURLs queues a background task to delete the specified short URLs for a user.
 func (s *ShortenerService) DeleteUserURLs(userID string, shortIDs []string) error {
 	if len(shortIDs) == 0 {
 		return nil
@@ -442,6 +459,7 @@ func (s *ShortenerService) DeleteUserURLs(userID string, shortIDs []string) erro
 	}
 }
 
+// deleteWorker runs as a background goroutine to process URL deletion tasks in batches.
 func (s *ShortenerService) deleteWorker(id int) {
 	defer s.wg.Done()
 
@@ -490,6 +508,7 @@ func (s *ShortenerService) deleteWorker(id int) {
 	}
 }
 
+// processBatch handles the deletion of a batch of tasks.
 func (s *ShortenerService) processBatch(batch []DeleteTask) {
 	if len(batch) == 0 {
 		return
@@ -542,6 +561,7 @@ func (s *ShortenerService) processBatch(batch []DeleteTask) {
 	}
 }
 
+// Close gracefully shuts down the ShortenerService, waiting for background workers to finish.
 func (s *ShortenerService) Close() {
 	close(s.shutdownChan)
 	close(s.deleteTasks)
@@ -549,6 +569,7 @@ func (s *ShortenerService) Close() {
 	s.logger.Info("All delete workers stopped")
 }
 
+// processDeleteTask marks URLs as deleted in storage.
 func (s *ShortenerService) processDeleteTask(task DeleteTask) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -584,6 +605,7 @@ func (s *ShortenerService) processDeleteTask(task DeleteTask) {
 	}
 }
 
+// GetURLsByShortIDs retrieves storage records for multiple short IDs.
 func (s *ShortenerService) GetURLsByShortIDs(ctx context.Context, shortIDs []string) (map[string]models.Storage, error) {
 	if s.useDB && s.pgRepo != nil {
 		return s.pgRepo.GetURLsByShortIDs(ctx, shortIDs)

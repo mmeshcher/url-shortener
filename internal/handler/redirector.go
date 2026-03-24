@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// RedirectHandler handles GET requests to redirect a short URL to its original long URL.
 func (h *Handler) RedirectHandler(rw http.ResponseWriter, r *http.Request) {
 	shortURL := chi.URLParam(r, "shortID")
 	if shortURL == "" {

@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// ShortenBatchHandler handles POST requests to shorten multiple URLs provided in a JSON array.
 func (h *Handler) ShortenBatchHandler(rw http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-Type")
 	if contentType != "application/json" {

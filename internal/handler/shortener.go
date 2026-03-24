@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// ShortenHandler handles POST requests to shorten a URL provided in the request body as plain text.
 func (h *Handler) ShortenHandler(rw http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil || len(body) == 0 {
