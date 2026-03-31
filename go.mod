@@ -1,6 +1,6 @@
 module github.com/mmeshcher/url-shortener
 
-go 1.24.1
+go 1.25.0
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
@@ -11,6 +11,7 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.1
+	golang.org/x/tools v0.43.0
 )
 
 require (
@@ -21,7 +22,8 @@ require (
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
-	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/mod v0.34.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 )
 
