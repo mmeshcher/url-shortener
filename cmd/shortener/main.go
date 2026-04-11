@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,7 +20,17 @@ import (
 	"github.com/mmeshcher/url-shortener/internal/service"
 )
 
+var (
+	buildVersion string
+	buildDate    string
+	buildCommit  string
+)
+
 func main() {
+	fmt.Printf("Build version: %s\n", getBuildValue(buildVersion))
+	fmt.Printf("Build date: %s\n", getBuildValue(buildDate))
+	fmt.Printf("Build commit: %s\n", getBuildValue(buildCommit))
+
 	logger, err := zap.NewDevelopment()
 	if err != nil {
 		logger.Fatal("Failed to create logger", zap.Error(err))
@@ -100,4 +111,11 @@ func main() {
 	}
 
 	sugar.Info("Server stopped")
+}
+
+func getBuildValue(v string) string {
+	if v == "" {
+		return "N/A"
+	}
+	return v
 }
