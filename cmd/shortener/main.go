@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mmeshcher/url-shortener/internal/audit"
+	"github.com/mmeshcher/url-shortener/internal/cert"
 	"github.com/mmeshcher/url-shortener/internal/config"
 	"github.com/mmeshcher/url-shortener/internal/handler"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
@@ -88,11 +89,28 @@ func main() {
 		sugar.Infow(
 			"Server starting",
 			"address", cfg.ServerAddress,
+			"https", cfg.EnableHTTPS,
 		)
 
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			sugar.Fatalw("Server failed",
-				"error", err.Error())
+		if cfg.EnableHTTPS {
+			certFile := "server.crt"
+			keyFile := "server.key"
+
+			// Check if certificate files exist, if not generate them
+			if _, err := os.Stat(certFile); os.IsNotExist(err) {
+				if err := cert.GenerateSelfSignedCert(certFile, keyFile); err != nil {
+					sugar.Fatalw("Failed to generate self-signed certificate", "error", err)
+				}
+				sugar.Infow("Self-signed certificate generated", "cert", certFile, "key", keyFile)
+			}
+
+			if err := server.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+				sugar.Fatalw("HTTPS server failed", "error", err.Error())
+			}
+		} else {
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				sugar.Fatalw("HTTP server failed", "error", err.Error())
+			}
 		}
 	}()
 

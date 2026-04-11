@@ -15,6 +15,7 @@ type Config struct {
 	SecretKey       string `env:"SECRET_KEY"`
 	AuditFile       string `env:"AUDIT_FILE"`
 	AuditURL        string `env:"AUDIT_URL"`
+	EnableHTTPS     bool   `env:"ENABLE_HTTPS"`
 }
 
 func ParseFlags() (*Config, error) {
@@ -31,14 +32,16 @@ func ParseFlags() (*Config, error) {
 	envSecretKey := cfg.SecretKey
 	envAuditFile := cfg.AuditFile
 	envAuditURL := cfg.AuditURL
+	envEnableHTTPS := cfg.EnableHTTPS
 
 	flag.StringVar(&cfg.ServerAddress, "a", "localhost:8080", "Address of the server")
 	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "Base URL for short URLs")
 	flag.StringVar(&cfg.FileStoragePath, "file-storage-path", "url_storage.json", "Path to file storage")
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", "Database connection string")
-	flag.StringVar(&cfg.SecretKey, "s", "secret-key", "Secret key for signing cookies")
+	flag.StringVar(&cfg.SecretKey, "secret-key", "secret-key", "Secret key for signing cookies")
 	flag.StringVar(&cfg.AuditFile, "audit-file", "", "Path to audit file")
 	flag.StringVar(&cfg.AuditURL, "audit-url", "", "URL for audit remote server")
+	flag.BoolVar(&cfg.EnableHTTPS, "s", false, "Enable HTTPS")
 
 	flag.Parse()
 
@@ -62,6 +65,9 @@ func ParseFlags() (*Config, error) {
 	}
 	if envAuditURL != "" {
 		cfg.AuditURL = envAuditURL
+	}
+	if envEnableHTTPS {
+		cfg.EnableHTTPS = envEnableHTTPS
 	}
 
 	cfg.applyDefaultValues()
