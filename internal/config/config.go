@@ -46,11 +46,6 @@ func ParseFlags() (*Config, error) {
 
 	flag.Parse()
 
-	if configPath == "" {
-		// Re-checking flags as flag.Parse() has already been executed
-		// configPath was already defined via StringVar above
-	}
-
 	if configPath != "" {
 		jsonCfg, err := loadConfigFromJSON(configPath)
 		if err != nil {
