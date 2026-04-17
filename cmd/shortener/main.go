@@ -115,11 +115,12 @@ func main() {
 	}()
 
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	<-quit
 
 	sugar.Info("Shutting down server...")
 
+	// Gracefully shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -128,6 +129,7 @@ func main() {
 			"error", err.Error())
 	}
 
+	// Service.Close() is called via defer at the beginning of main()
 	sugar.Info("Server stopped")
 }
 

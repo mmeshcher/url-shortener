@@ -567,6 +567,16 @@ func (s *ShortenerService) Close() {
 	close(s.deleteTasks)
 	s.wg.Wait()
 	s.logger.Info("All delete workers stopped")
+
+	if s.useDB && s.pgRepo != nil {
+		s.pgRepo.Close()
+		s.logger.Info("Database connection closed")
+	}
+
+	if !s.useDB && s.storagePath != "" {
+		s.saveToFile()
+		s.logger.Info("Data saved to file storage")
+	}
 }
 
 // processDeleteTask marks URLs as deleted in storage.
