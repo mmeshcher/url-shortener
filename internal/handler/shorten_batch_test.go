@@ -13,6 +13,7 @@ import (
 	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/models"
+	"github.com/mmeshcher/url-shortener/internal/repository"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -113,8 +114,9 @@ func TestShortenBatchHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := service.NewShortenerService("http://localhost:8080", "", logger, "")
-			h := NewHandler(service, logger, authMiddleware, auditor)
+			repo := repository.NewMemoryRepository("", logger)
+			s := service.NewShortenerService("http://localhost:8080", repo, logger)
+			h := NewHandler(s, logger, authMiddleware, auditor)
 			router := h.SetupRouter()
 
 			testCookie := createTestCookie(tt.userID)

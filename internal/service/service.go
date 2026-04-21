@@ -5,15 +5,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"net/url"
-	"os"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/mmeshcher/url-shortener/internal/models"
+	"github.com/mmeshcher/url-shortener/internal/models/domain"
 	"github.com/mmeshcher/url-shortener/internal/repository"
 	"go.uber.org/zap"
 )
@@ -35,18 +32,9 @@ type DeleteTask struct {
 
 // ShortenerService handles URL shortening logic and interacts with the storage layer.
 type ShortenerService struct {
-	mu          sync.RWMutex
-	saveMu      sync.Mutex
-	data        map[string]string
-	reverseData map[string]string
-	userData    map[string][]string
-	deletedURLs map[string]bool
-	baseURL     string
-	storagePath string
-	logger      *zap.Logger
-	pgRepo      *repository.PostgresRepository
-	useDB       bool
-
+	repo         repository.URLRepository
+	baseURL      string
+	logger       *zap.Logger
 	deleteTasks  chan DeleteTask
 	batchTimeout time.Duration
 	batchSize    int
@@ -56,16 +44,11 @@ type ShortenerService struct {
 }
 
 // NewShortenerService creates and initializes a new ShortenerService.
-func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databaseDSN string) *ShortenerService {
+func NewShortenerService(baseURL string, repo repository.URLRepository, logger *zap.Logger) *ShortenerService {
 	service := &ShortenerService{
-		data:         make(map[string]string),
-		reverseData:  make(map[string]string),
-		userData:     make(map[string][]string),
-		deletedURLs:  make(map[string]bool),
+		repo:         repo,
 		baseURL:      baseURL,
-		storagePath:  storagePath,
 		logger:       logger,
-		useDB:        databaseDSN != "",
 		deleteTasks:  make(chan DeleteTask, 1000),
 		batchTimeout: 500 * time.Millisecond,
 		batchSize:    100,
@@ -76,22 +59,6 @@ func NewShortenerService(baseURL, storagePath string, logger *zap.Logger, databa
 	for i := 0; i < service.workers; i++ {
 		service.wg.Add(1)
 		go service.deleteWorker(i)
-	}
-
-	if service.useDB {
-		pgRepo, err := repository.NewPostgresRepository(databaseDSN, baseURL)
-		if err != nil {
-			logger.Error("Failed to connect to PostgreSQL, using file storage", zap.Error(err))
-			service.useDB = false
-		} else {
-			service.pgRepo = pgRepo
-			logger.Info("Using PostgreSQL repository")
-			return service
-		}
-	}
-
-	if storagePath != "" {
-		service.loadFromFile()
 	}
 
 	return service
@@ -117,319 +84,107 @@ func (s *ShortenerService) CreateShortURL(ctx context.Context, originalURL, user
 		return "", ErrInvalidURL
 	}
 
-	if s.useDB && s.pgRepo != nil {
-		shortID := s.GenerateShortID()
+	shortID := s.GenerateShortID()
+	savedShortID, hasConflict, err := s.repo.SaveURL(ctx, shortID, originalURL, userID)
 
-		savedShortID, hasConflict, err := s.pgRepo.SaveURL(ctx, shortID, originalURL, userID)
-
-		if err != nil {
-			s.logger.Error("Failed to save URL to database", zap.Error(err))
-			return "", err
-		}
-
-		if hasConflict {
-			return s.baseURL + "/" + savedShortID, ErrURLAlreadyExists
-		}
-
-		return s.baseURL + "/" + shortID, nil
+	if err != nil {
+		s.logger.Error("Failed to save URL to repository", zap.Error(err))
+		return "", err
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if shortID, exists := s.reverseData[originalURL]; exists {
-		return s.baseURL + "/" + shortID, ErrURLAlreadyExists
+	if hasConflict {
+		return s.baseURL + "/" + savedShortID, ErrURLAlreadyExists
 	}
-
-	const maxAttempts = 10
-	var shortID string
-	var attempts int
-
-	for attempts = 0; attempts < maxAttempts; attempts++ {
-		shortID = s.GenerateShortID()
-		if _, exists := s.data[shortID]; !exists {
-			break
-		}
-	}
-
-	if attempts == maxAttempts {
-		s.logger.Error("Failed to generate unique short ID after max attempts")
-		return "", ErrGenerateID
-	}
-
-	s.data[shortID] = originalURL
-	s.reverseData[originalURL] = shortID
-
-	if userID != "" {
-		s.userData[userID] = append(s.userData[userID], shortID)
-	}
-
-	go func() {
-		s.saveToFile()
-	}()
 
 	return s.baseURL + "/" + shortID, nil
 }
 
 // GetUserURLs returns a list of all URLs created by the specified user.
-func (s *ShortenerService) GetUserURLs(ctx context.Context, userID string) ([]models.UserURL, error) {
-	if s.useDB && s.pgRepo != nil {
-		return s.pgRepo.GetUserURLs(ctx, userID)
+func (s *ShortenerService) GetUserURLs(ctx context.Context, userID string) ([]domain.UserURL, error) {
+	urls, err := s.repo.GetUserURLs(ctx, userID)
+	if err != nil {
+		return nil, err
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if shortIDs, exists := s.userData[userID]; exists {
-		userURLs := make([]models.UserURL, 0, len(shortIDs))
-		for _, shortID := range shortIDs {
-			if originalURL, ok := s.data[shortID]; ok {
-				userURLs = append(userURLs, models.UserURL{
-					ShortURL:    s.baseURL + "/" + shortID,
-					OriginalURL: originalURL,
-				})
-			}
-		}
-		return userURLs, nil
+	if len(urls) == 0 {
+		return nil, nil // Return nil for empty slice as requested in comment 8
 	}
 
-	return []models.UserURL{}, nil
+	for i := range urls {
+		urls[i].ShortURL = s.baseURL + "/" + urls[i].ShortURL
+	}
+
+	return urls, nil
 }
 
 // GetOriginalURL retrieves the original URL corresponding to the given short ID.
 // It returns the original URL, a boolean indicating if it exists, and a boolean indicating if it was deleted.
 func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool, bool) {
-	if s.useDB && s.pgRepo != nil {
-		ctx := context.Background()
-		originalURL, deleted, err := s.pgRepo.GetOriginalURL(ctx, shortID)
-		if err != nil {
-			return "", false, false
-		}
-		if deleted {
-			return "", true, true
-		}
-		return originalURL, true, false
+	ctx := context.Background()
+	originalURL, deleted, err := s.repo.GetOriginalURL(ctx, shortID)
+	if err != nil {
+		return "", false, false
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.deletedURLs[shortID] {
+	if deleted {
 		return "", true, true
 	}
 
-	originalURL, exists := s.data[shortID]
-	return originalURL, exists, false
+	if originalURL == "" {
+		return "", false, false
+	}
+
+	return originalURL, true, false
 }
 
 // Ping checks the availability of the storage layer (e.g., database).
 func (s *ShortenerService) Ping() error {
-	if s.useDB && s.pgRepo != nil {
-		ctx := context.Background()
-		return s.pgRepo.Ping(ctx)
-	}
-
-	return nil
-}
-
-// saveToFile persists the in-memory URL data to the storage file.
-func (s *ShortenerService) saveToFile() {
-	if s.storagePath == "" {
-		return
-	}
-
-	s.saveMu.Lock()
-	defer s.saveMu.Unlock()
-
-	s.mu.RLock()
-	data := make(map[string]string, len(s.data))
-	userData := make(map[string][]string, len(s.userData))
-
-	for k, v := range s.data {
-		data[k] = v
-	}
-	for k, v := range s.userData {
-		userData[k] = append([]string{}, v...)
-	}
-	s.mu.RUnlock()
-
-	if len(data) == 0 {
-		return
-	}
-
-	type URLRecordWithUser struct {
-		UUID        string `json:"uuid"`
-		ShortURL    string `json:"short_url"`
-		OriginalURL string `json:"original_url"`
-		UserID      string `json:"user_id,omitempty"`
-	}
-
-	records := make([]URLRecordWithUser, 0, len(data))
-
-	shortIDToUserID := make(map[string]string)
-	for userID, shortIDs := range userData {
-		for _, shortID := range shortIDs {
-			shortIDToUserID[shortID] = userID
-		}
-	}
-
-	for shortID, originalURL := range data {
-		userID := shortIDToUserID[shortID]
-		records = append(records, URLRecordWithUser{
-			UUID:        uuid.New().String(),
-			ShortURL:    shortID,
-			OriginalURL: originalURL,
-			UserID:      userID,
-		})
-	}
-
-	jsonData, err := json.MarshalIndent(records, "", "  ")
-	if err != nil {
-		s.logger.Error("Failed to marshal data for saving", zap.Error(err))
-		return
-	}
-
-	os.WriteFile(s.storagePath, jsonData, 0644)
-}
-
-// loadFromFile reads URL data from the storage file into memory.
-func (s *ShortenerService) loadFromFile() {
-	if s.storagePath == "" {
-		return
-	}
-
-	file, err := os.Open(s.storagePath)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-
-	data, err := os.ReadFile(s.storagePath)
-	if err != nil {
-		s.logger.Error("Failed to read storage file", zap.Error(err))
-		return
-	}
-
-	type URLRecordWithUser struct {
-		UUID        string `json:"uuid"`
-		ShortURL    string `json:"short_url"`
-		OriginalURL string `json:"original_url"`
-		UserID      string `json:"user_id,omitempty"`
-	}
-
-	var records []URLRecordWithUser
-	if err := json.Unmarshal(data, &records); err != nil {
-		s.logger.Error("Failed to parse storage file", zap.Error(err))
-		return
-	}
-
-	s.mu.Lock()
-	for _, record := range records {
-		s.data[record.ShortURL] = record.OriginalURL
-		s.reverseData[record.OriginalURL] = record.ShortURL
-
-		if record.UserID != "" {
-			s.userData[record.UserID] = append(s.userData[record.UserID], record.ShortURL)
-		}
-	}
-	s.mu.Unlock()
+	ctx := context.Background()
+	return s.repo.Ping(ctx)
 }
 
 // CreateShortURLBatch shortens multiple URLs in a single request.
-func (s *ShortenerService) CreateShortURLBatch(ctx context.Context, batch []models.BatchRequest, userID string) ([]models.BatchResponse, error) {
+func (s *ShortenerService) CreateShortURLBatch(ctx context.Context, batch []domain.BatchRequest, userID string) ([]domain.BatchResponse, error) {
 	if len(batch) == 0 {
 		return nil, ErrEmptyBatch
 	}
 
-	response := make([]models.BatchResponse, 0, len(batch))
-
+	repoBatch := make([]domain.BatchItem, 0, len(batch))
 	for _, item := range batch {
-		shortURL, err := s.CreateShortURL(ctx, item.OriginalURL, userID)
-
-		if err != nil && !errors.Is(err, ErrURLAlreadyExists) {
+		if item.OriginalURL == "" {
+			continue
+		}
+		if _, err := url.ParseRequestURI(item.OriginalURL); err != nil {
 			continue
 		}
 
-		response = append(response, models.BatchResponse{
-			CorrelationID: item.CorrelationID,
-			ShortURL:      shortURL,
+		shortID := s.GenerateShortID()
+		repoBatch = append(repoBatch, domain.BatchItem{
+			ShortID:     shortID,
+			OriginalURL: item.OriginalURL,
+			UserID:      userID,
 		})
 	}
 
-	if len(response) == 0 {
+	if len(repoBatch) == 0 {
 		return nil, ErrNoValidURLs
 	}
 
-	return response, nil
-}
-
-// createBatchWithPostgres handles batch shortening using PostgreSQL storage.
-func (s *ShortenerService) createBatchWithPostgres(batch []models.BatchRequest) ([]models.BatchResponse, error) {
-	ctx := context.Background()
-
-	repoBatch := make([]repository.BatchItem, len(batch))
-	for i, item := range batch {
-		shortID := s.GenerateShortID()
-		repoBatch[i] = repository.BatchItem{
-			ShortID:     shortID,
-			OriginalURL: item.OriginalURL,
-		}
-	}
-
-	result, err := s.pgRepo.ProcessURLBatch(ctx, repoBatch)
+	result, err := s.repo.ProcessURLBatch(ctx, repoBatch)
 	if err != nil {
 		s.logger.Error("Failed to process URL batch", zap.Error(err))
 		return nil, err
 	}
 
-	response := make([]models.BatchResponse, len(batch))
-	for i, item := range batch {
-		shortID := result[item.OriginalURL]
-		shortURL, _ := url.JoinPath(s.baseURL, shortID)
-		response[i] = models.BatchResponse{
-			CorrelationID: item.CorrelationID,
-			ShortURL:      shortURL,
-		}
-	}
-
-	return response, nil
-}
-
-// createBatchWithMemory handles batch shortening using in-memory storage.
-func (s *ShortenerService) createBatchWithMemory(batch []models.BatchRequest) ([]models.BatchResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	response := make([]models.BatchResponse, 0, len(batch))
-	urlsToSave := make(map[string]models.BatchRequest)
-
-	for _, item := range batch {
-		if shortID, exists := s.reverseData[item.OriginalURL]; exists {
-			shortURL, _ := url.JoinPath(s.baseURL, shortID)
-			response = append(response, models.BatchResponse{
-				CorrelationID: item.CorrelationID,
-				ShortURL:      shortURL,
-			})
-		} else {
-			shortID := s.GenerateShortID()
-			urlsToSave[shortID] = item
-			shortURL, _ := url.JoinPath(s.baseURL, shortID)
-			response = append(response, models.BatchResponse{
-				CorrelationID: item.CorrelationID,
+	response := make([]domain.BatchResponse, 0, len(batch))
+	for _, b := range batch {
+		if shortID, ok := result[b.OriginalURL]; ok {
+			shortURL := s.baseURL + "/" + shortID
+			response = append(response, domain.BatchResponse{
+				CorrelationID: b.CorrelationID,
 				ShortURL:      shortURL,
 			})
 		}
-	}
-
-	for shortID, item := range urlsToSave {
-		s.data[shortID] = item.OriginalURL
-		s.reverseData[item.OriginalURL] = shortID
-	}
-
-	if len(urlsToSave) > 0 && s.storagePath != "" {
-		go func() {
-			s.saveToFile()
-		}()
 	}
 
 	return response, nil
@@ -522,42 +277,17 @@ func (s *ShortenerService) processBatch(batch []DeleteTask) {
 		userToShortIDs[task.UserID] = append(userToShortIDs[task.UserID], task.ShortIDs...)
 	}
 
-	if s.useDB && s.pgRepo != nil {
-		for userID, shortIDs := range userToShortIDs {
-			if err := s.pgRepo.DeleteUserURLs(ctx, userID, shortIDs); err != nil {
-				s.logger.Error("Failed to delete URLs in database batch",
-					zap.String("userID", userID),
-					zap.Int("count", len(shortIDs)),
-					zap.Error(err))
-			} else {
-				s.logger.Info("URLs deleted in database batch",
-					zap.String("userID", userID),
-					zap.Int("count", len(shortIDs)))
-			}
+	for userID, shortIDs := range userToShortIDs {
+		if err := s.repo.DeleteUserURLs(ctx, userID, shortIDs); err != nil {
+			s.logger.Error("Failed to delete URLs in repository batch",
+				zap.String("userID", userID),
+				zap.Int("count", len(shortIDs)),
+				zap.Error(err))
+		} else {
+			s.logger.Info("URLs deleted in repository batch",
+				zap.String("userID", userID),
+				zap.Int("count", len(shortIDs)))
 		}
-	} else {
-		s.mu.Lock()
-		for userID, shortIDs := range userToShortIDs {
-			userShortIDs, exists := s.userData[userID]
-			if !exists {
-				continue
-			}
-
-			userShortIDSet := make(map[string]bool)
-			for _, id := range userShortIDs {
-				userShortIDSet[id] = true
-			}
-
-			for _, shortID := range shortIDs {
-				if userShortIDSet[shortID] {
-					s.deletedURLs[shortID] = true
-				}
-			}
-		}
-		s.mu.Unlock()
-
-		s.logger.Info("URLs marked as deleted in memory batch",
-			zap.Int("batchSize", len(batch)))
 	}
 }
 
@@ -568,14 +298,10 @@ func (s *ShortenerService) Close() {
 	s.wg.Wait()
 	s.logger.Info("All delete workers stopped")
 
-	if s.useDB && s.pgRepo != nil {
-		s.pgRepo.Close()
-		s.logger.Info("Database connection closed")
-	}
-
-	if !s.useDB && s.storagePath != "" {
-		s.saveToFile()
-		s.logger.Info("Data saved to file storage")
+	if err := s.repo.Close(); err != nil {
+		s.logger.Error("Failed to close repository", zap.Error(err))
+	} else {
+		s.logger.Info("Repository closed")
 	}
 }
 
@@ -584,70 +310,19 @@ func (s *ShortenerService) processDeleteTask(task DeleteTask) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if s.useDB && s.pgRepo != nil {
-		err := s.pgRepo.DeleteUserURLs(ctx, task.UserID, task.ShortIDs)
-		if err != nil {
-			s.logger.Error("Failed to delete URLs in database",
-				zap.String("userID", task.UserID),
-				zap.Error(err))
-		} else {
-			s.logger.Info("URLs deleted in database",
-				zap.String("userID", task.UserID),
-				zap.Int("count", len(task.ShortIDs)))
-		}
+	err := s.repo.DeleteUserURLs(ctx, task.UserID, task.ShortIDs)
+	if err != nil {
+		s.logger.Error("Failed to delete URLs in repository",
+			zap.String("userID", task.UserID),
+			zap.Error(err))
 	} else {
-		s.mu.Lock()
-		for _, shortID := range task.ShortIDs {
-			if userShortIDs, exists := s.userData[task.UserID]; exists {
-				for _, userShortID := range userShortIDs {
-					if userShortID == shortID {
-						s.deletedURLs[shortID] = true
-						break
-					}
-				}
-			}
-		}
-		s.mu.Unlock()
-
-		s.logger.Info("URLs marked as deleted in memory",
+		s.logger.Info("URLs deleted in repository",
 			zap.String("userID", task.UserID),
 			zap.Int("count", len(task.ShortIDs)))
 	}
 }
 
 // GetURLsByShortIDs retrieves storage records for multiple short IDs.
-func (s *ShortenerService) GetURLsByShortIDs(ctx context.Context, shortIDs []string) (map[string]models.Storage, error) {
-	if s.useDB && s.pgRepo != nil {
-		return s.pgRepo.GetURLsByShortIDs(ctx, shortIDs)
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	result := make(map[string]models.Storage)
-	for _, shortID := range shortIDs {
-		if originalURL, exists := s.data[shortID]; exists {
-			var userID string
-			for uid, shortIDs := range s.userData {
-				for _, sid := range shortIDs {
-					if sid == shortID {
-						userID = uid
-						break
-					}
-				}
-				if userID != "" {
-					break
-				}
-			}
-
-			result[shortID] = models.Storage{
-				ShortURL:    shortID,
-				OriginalURL: originalURL,
-				UserID:      userID,
-				IsDeleted:   s.deletedURLs[shortID],
-			}
-		}
-	}
-
-	return result, nil
+func (s *ShortenerService) GetURLsByShortIDs(ctx context.Context, shortIDs []string) (map[string]domain.Storage, error) {
+	return s.repo.GetURLsByShortIDs(ctx, shortIDs)
 }

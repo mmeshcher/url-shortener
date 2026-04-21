@@ -18,6 +18,7 @@ import (
 	"github.com/mmeshcher/url-shortener/internal/config"
 	"github.com/mmeshcher/url-shortener/internal/handler"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
+	"github.com/mmeshcher/url-shortener/internal/repository"
 	"github.com/mmeshcher/url-shortener/internal/service"
 )
 
@@ -72,7 +73,20 @@ func main() {
 
 	authMiddleware := middleware.NewAuthMiddleware(cfg.SecretKey, logger)
 
-	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath, logger, cfg.DatabaseDSN)
+	var repo repository.URLRepository
+	if cfg.DatabaseDSN != "" {
+		pgRepo, err := repository.NewPostgresRepository(cfg.DatabaseDSN)
+		if err != nil {
+			sugar.Errorw("Failed to connect to PostgreSQL, using file storage", "error", err)
+			repo = repository.NewMemoryRepository(cfg.FileStoragePath, logger)
+		} else {
+			repo = pgRepo
+		}
+	} else {
+		repo = repository.NewMemoryRepository(cfg.FileStoragePath, logger)
+	}
+
+	shortnerService := service.NewShortenerService(cfg.BaseURL, repo, logger)
 
 	defer shortnerService.Close()
 

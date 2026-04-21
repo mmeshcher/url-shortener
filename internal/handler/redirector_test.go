@@ -13,6 +13,7 @@ import (
 
 	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
+	"github.com/mmeshcher/url-shortener/internal/repository"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,13 +55,14 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "positive test",
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string, *http.Cookie) {
-				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
+				repo := repository.NewMemoryRepository("", logger)
+				s := service.NewShortenerService("http://localhost:8080", repo, logger)
 				testUserID := "test-user-123"
 				testCookie := createTestCookie(testUserID)
 
-				shortURL, _ := service.CreateShortURL(context.Background(), "https://practicum.yandex.ru/", testUserID)
+				shortURL, _ := s.CreateShortURL(context.Background(), "https://practicum.yandex.ru/", testUserID)
 				shortID := shortURL[len("http://localhost:8080/"):]
-				return service, shortID, testCookie
+				return s, shortID, testCookie
 			},
 			want: want{
 				statusCode:  307,
@@ -74,9 +76,10 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "negative: non-existent short URL",
 			method: http.MethodGet,
 			setup: func() (*service.ShortenerService, string, *http.Cookie) {
-				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
+				repo := repository.NewMemoryRepository("", logger)
+				s := service.NewShortenerService("http://localhost:8080", repo, logger)
 				testCookie := createTestCookie("test-user-456")
-				return service, "nonexistent123", testCookie
+				return s, "nonexistent123", testCookie
 			},
 			want: want{
 				statusCode:  404,
@@ -90,13 +93,14 @@ func TestRedirectHandler(t *testing.T) {
 			name:   "negative: wrong method POST",
 			method: http.MethodPost,
 			setup: func() (*service.ShortenerService, string, *http.Cookie) {
-				service := service.NewShortenerService("http://localhost:8080", "", logger, "")
+				repo := repository.NewMemoryRepository("", logger)
+				s := service.NewShortenerService("http://localhost:8080", repo, logger)
 				testUserID := "test-user-789"
 				testCookie := createTestCookie(testUserID)
 
-				shortURL, _ := service.CreateShortURL(context.Background(), "https://practicum.yandex.ru/", testUserID)
+				shortURL, _ := s.CreateShortURL(context.Background(), "https://practicum.yandex.ru/", testUserID)
 				shortID := shortURL[len("http://localhost:8080/"):]
-				return service, shortID, testCookie
+				return s, shortID, testCookie
 			},
 			want: want{
 				statusCode:  405,
@@ -118,9 +122,9 @@ func TestRedirectHandler(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			h := NewHandler(service, logger, authMiddleware, auditor)
-			r := h.SetupRouter()
+			router := h.SetupRouter()
 
-			r.ServeHTTP(w, request)
+			router.ServeHTTP(w, request)
 
 			result := w.Result()
 			defer result.Body.Close()
