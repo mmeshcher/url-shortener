@@ -138,7 +138,7 @@ func TestGetUserURLsHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := repository.NewMemoryRepository("", logger)
 			s := service.NewShortenerService("http://localhost:8080", repo, logger)
-			h := NewHandler(s, logger, authMiddleware, auditor)
+			h := NewHandler(s, logger, authMiddleware, auditor, nil)
 			router := h.SetupRouter()
 
 			if tt.userID != "" && len(tt.setupURL) > 0 {

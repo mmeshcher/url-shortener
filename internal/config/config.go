@@ -18,6 +18,7 @@ type Config struct {
 	AuditFile       string `env:"AUDIT_FILE" json:"audit_file"`
 	AuditURL        string `env:"AUDIT_URL" json:"audit_url"`
 	EnableHTTPS     bool   `env:"ENABLE_HTTPS" json:"enable_https"`
+	TrustedSubnet   string `env:"TRUSTED_SUBNET" json:"trusted_subnet"`
 	ConfigPath      string `env:"CONFIG"`
 }
 
@@ -43,6 +44,7 @@ func ParseFlags() (*Config, error) {
 	fAuditFile := flag.String("audit-file", "", "Path to audit file")
 	fAuditURL := flag.String("audit-url", "", "URL for audit remote server")
 	fEnableHTTPS := flag.Bool("s", false, "Enable HTTPS")
+	fTrustedSubnet := flag.String("t", "", "Trusted subnet (CIDR)")
 
 	flag.Parse()
 
@@ -77,6 +79,9 @@ func ParseFlags() (*Config, error) {
 	}
 	if *fEnableHTTPS {
 		cfg.EnableHTTPS = *fEnableHTTPS
+	}
+	if *fTrustedSubnet != "" {
+		cfg.TrustedSubnet = *fTrustedSubnet
 	}
 
 	cfg.applyDefaultValues()
@@ -120,6 +125,9 @@ func (c *Config) mergeJSON(other *Config) {
 	}
 	if !c.EnableHTTPS {
 		c.EnableHTTPS = other.EnableHTTPS
+	}
+	if c.TrustedSubnet == "" {
+		c.TrustedSubnet = other.TrustedSubnet
 	}
 }
 

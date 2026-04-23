@@ -13,3 +13,4 @@ type Storage = domain.Storage
 type UserURLsResponse = domain.UserURLsResponse
 type DeleteRequest = domain.DeleteRequest
 type BatchItem = domain.BatchItem
+type StatsResponse = domain.StatsResponse

@@ -72,6 +72,7 @@ func main() {
 	}
 
 	authMiddleware := middleware.NewAuthMiddleware(cfg.SecretKey, logger)
+	ipControlMiddleware := middleware.NewIPControlMiddleware(cfg.TrustedSubnet, logger)
 
 	var repo repository.URLRepository
 	if cfg.DatabaseDSN != "" {
@@ -90,7 +91,7 @@ func main() {
 
 	defer shortnerService.Close()
 
-	h := handler.NewHandler(shortnerService, logger, authMiddleware, auditor)
+	h := handler.NewHandler(shortnerService, logger, authMiddleware, auditor, ipControlMiddleware)
 
 	r := h.SetupRouter()
 

@@ -357,6 +357,23 @@ func (p *PostgresRepository) DeleteUserURLs(ctx context.Context, userID string, 
 	return nil
 }
 
+func (p *PostgresRepository) GetStats(ctx context.Context) (int, int, error) {
+	var urlsCount int
+	var usersCount int
+
+	err := p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM urls").Scan(&urlsCount)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count URLs: %w", err)
+	}
+
+	err = p.pool.QueryRow(ctx, "SELECT COUNT(DISTINCT user_id) FROM urls").Scan(&usersCount)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count users: %w", err)
+	}
+
+	return urlsCount, usersCount, nil
+}
+
 func (p *PostgresRepository) GetURLsByShortIDs(ctx context.Context, shortIDs []string) (map[string]domain.Storage, error) {
 	if len(shortIDs) == 0 {
 		return make(map[string]domain.Storage), nil

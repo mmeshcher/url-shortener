@@ -137,6 +137,11 @@ func (s *ShortenerService) GetOriginalURL(shortID string) (string, bool, bool) {
 	return originalURL, true, false
 }
 
+// GetStats returns system statistics.
+func (s *ShortenerService) GetStats(ctx context.Context) (int, int, error) {
+	return s.repo.GetStats(ctx)
+}
+
 // Ping checks the availability of the storage layer (e.g., database).
 func (s *ShortenerService) Ping() error {
 	ctx := context.Background()

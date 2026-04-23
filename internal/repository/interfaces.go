@@ -13,6 +13,7 @@ type URLRepository interface {
 	GetURLsByShortIDs(ctx context.Context, shortIDs []string) (map[string]domain.Storage, error)
 	ProcessURLBatch(ctx context.Context, batch []domain.BatchItem) (map[string]string, error)
 	DeleteUserURLs(ctx context.Context, userID string, shortIDs []string) error
+	GetStats(ctx context.Context) (int, int, error)
 	Ping(ctx context.Context) error
 	Close() error
 }

@@ -121,7 +121,7 @@ func TestRedirectHandler(t *testing.T) {
 
 			w := httptest.NewRecorder()
 
-			h := NewHandler(service, logger, authMiddleware, auditor)
+			h := NewHandler(service, logger, authMiddleware, auditor, nil)
 			router := h.SetupRouter()
 
 			router.ServeHTTP(w, request)

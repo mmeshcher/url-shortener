@@ -10,18 +10,26 @@ import (
 
 // Handler provides HTTP endpoints for URL shortening and management.
 type Handler struct {
-	service        *service.ShortenerService
-	logger         *zap.Logger
-	authMiddleware *middleware.AuthMiddleware
-	auditor        *audit.Auditor
+	service             *service.ShortenerService
+	logger              *zap.Logger
+	authMiddleware      *middleware.AuthMiddleware
+	auditor             *audit.Auditor
+	ipControlMiddleware *middleware.IPControlMiddleware
 }
 
 // NewHandler creates a new Handler instance with the provided dependencies.
-func NewHandler(service *service.ShortenerService, logger *zap.Logger, authMiddleware *middleware.AuthMiddleware, auditor *audit.Auditor) *Handler {
+func NewHandler(
+	service *service.ShortenerService,
+	logger *zap.Logger,
+	authMiddleware *middleware.AuthMiddleware,
+	auditor *audit.Auditor,
+	ipControlMiddleware *middleware.IPControlMiddleware,
+) *Handler {
 	return &Handler{
-		service:        service,
-		logger:         logger,
-		authMiddleware: authMiddleware,
-		auditor:        auditor,
+		service:             service,
+		logger:              logger,
+		authMiddleware:      authMiddleware,
+		auditor:             auditor,
+		ipControlMiddleware: ipControlMiddleware,
 	}
 }
