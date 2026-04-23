@@ -10,6 +10,7 @@ import (
 	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/handler"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
+	"github.com/mmeshcher/url-shortener/internal/repository"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"go.uber.org/zap"
 )
@@ -20,7 +21,8 @@ func ExampleHandler_ShortenHandler() {
 	logger := zap.NewNop()
 	auditor := audit.NewAuditor()
 	authMiddleware := middleware.NewAuthMiddleware("secret-key", logger)
-	shortenerService := service.NewShortenerService("http://localhost:8080", "", logger, "")
+	repo := repository.NewMemoryRepository("", logger)
+	shortenerService := service.NewShortenerService("http://localhost:8080", repo, logger)
 	h := handler.NewHandler(shortenerService, logger, authMiddleware, auditor)
 	router := h.SetupRouter()
 
@@ -51,7 +53,8 @@ func ExampleHandler_ShortenJSONHandler() {
 	logger := zap.NewNop()
 	auditor := audit.NewAuditor()
 	authMiddleware := middleware.NewAuthMiddleware("secret-key", logger)
-	shortenerService := service.NewShortenerService("http://localhost:8080", "", logger, "")
+	repo := repository.NewMemoryRepository("", logger)
+	shortenerService := service.NewShortenerService("http://localhost:8080", repo, logger)
 	h := handler.NewHandler(shortenerService, logger, authMiddleware, auditor)
 	router := h.SetupRouter()
 
@@ -81,7 +84,8 @@ func ExampleHandler_PingHandler() {
 	logger := zap.NewNop()
 	auditor := audit.NewAuditor()
 	authMiddleware := middleware.NewAuthMiddleware("secret-key", logger)
-	shortenerService := service.NewShortenerService("http://localhost:8080", "", logger, "")
+	repo := repository.NewMemoryRepository("", logger)
+	shortenerService := service.NewShortenerService("http://localhost:8080", repo, logger)
 	h := handler.NewHandler(shortenerService, logger, authMiddleware, auditor)
 	router := h.SetupRouter()
 

@@ -1,0 +1,7 @@
+{
+    "server_address": "localhost:8888",
+    "base_url": "https://localhost:8888",
+    "file_storage_path": "json_storage.json",
+    "database_dsn": "postgres://user:pass@localhost:5432/db",
+    "enable_https": true
+}

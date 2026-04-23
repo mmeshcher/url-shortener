@@ -13,6 +13,7 @@ import (
 
 	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
+	"github.com/mmeshcher/url-shortener/internal/repository"
 	"github.com/mmeshcher/url-shortener/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -124,17 +125,18 @@ func TestDeleteUserURLsHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := service.NewShortenerService("http://localhost:8080", "", logger, "")
+			repo := repository.NewMemoryRepository("", logger)
+			s := service.NewShortenerService("http://localhost:8080", repo, logger)
 
 			if tt.setupFunc != nil && tt.cookie != nil {
 				parts := strings.Split(tt.cookie.Value, ".")
 				if len(parts) == 2 {
 					userID := parts[0]
-					tt.setupFunc(service, userID)
+					tt.setupFunc(s, userID)
 				}
 			}
 
-			h := NewHandler(service, logger, authMiddleware, auditor)
+			h := NewHandler(s, logger, authMiddleware, auditor)
 			router := h.SetupRouter()
 
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))

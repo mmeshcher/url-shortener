@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/mmeshcher/url-shortener/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -11,7 +12,8 @@ import (
 
 func TestShortenerService(t *testing.T) {
 	logger := zap.NewNop()
-	s := NewShortenerService("http://localhost:8080", "", logger, "")
+	repo := repository.NewMemoryRepository("", logger)
+	s := NewShortenerService("http://localhost:8080", repo, logger)
 
 	t.Run("Create and Get URL", func(t *testing.T) {
 		originalURL := "https://example.com"
@@ -22,16 +24,7 @@ func TestShortenerService(t *testing.T) {
 		assert.NotEmpty(t, shortURL)
 
 		// Get original URL
-		// The service returns the full URL, we need to extract the shortID
-		// But s.data contains shortID -> originalURL
-		// Let's find the shortID from the full URL
-		var shortID string
-		for id, url := range s.data {
-			if url == originalURL {
-				shortID = id
-				break
-			}
-		}
+		shortID := shortURL[len("http://localhost:8080/"):]
 
 		gotURL, exists, deleted := s.GetOriginalURL(shortID)
 		assert.True(t, exists)
@@ -61,7 +54,8 @@ func TestShortenerService(t *testing.T) {
 
 func BenchmarkCreateShortURL(b *testing.B) {
 	logger := zap.NewNop()
-	s := NewShortenerService("http://localhost:8080", "", logger, "")
+	repo := repository.NewMemoryRepository("", logger)
+	s := NewShortenerService("http://localhost:8080", repo, logger)
 	ctx := context.Background()
 	userID := "user1"
 
@@ -74,18 +68,15 @@ func BenchmarkCreateShortURL(b *testing.B) {
 
 func BenchmarkGetOriginalURL(b *testing.B) {
 	logger := zap.NewNop()
-	s := NewShortenerService("http://localhost:8080", "", logger, "")
+	repo := repository.NewMemoryRepository("", logger)
+	s := NewShortenerService("http://localhost:8080", repo, logger)
 	ctx := context.Background()
 	userID := "user1"
-	url := "https://example.com"
-	_, _ = s.CreateShortURL(ctx, url, userID)
+	originalURL := "https://example.com"
+	shortURL, _ := s.CreateShortURL(ctx, originalURL, userID)
 
 	// Extract shortID
-	var shortID string
-	for id := range s.data {
-		shortID = id
-		break
-	}
+	shortID := shortURL[len("http://localhost:8080/"):]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

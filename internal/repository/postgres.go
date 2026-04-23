@@ -17,16 +17,15 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/mmeshcher/url-shortener/internal/models"
+	"github.com/mmeshcher/url-shortener/internal/models/domain"
 )
 
 type PostgresRepository struct {
-	pool    *pgxpool.Pool
-	sb      squirrel.StatementBuilderType
-	baseURL string
+	pool *pgxpool.Pool
+	sb   squirrel.StatementBuilderType
 }
 
-func NewPostgresRepository(dsn, baseURL string) (*PostgresRepository, error) {
+func NewPostgresRepository(dsn string) (*PostgresRepository, error) {
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
@@ -51,9 +50,8 @@ func NewPostgresRepository(dsn, baseURL string) (*PostgresRepository, error) {
 	log.Println("PostgreSQL repository initialized successfully")
 
 	return &PostgresRepository{
-		pool:    pool,
-		sb:      squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar),
-		baseURL: baseURL,
+		pool: pool,
+		sb:   squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar),
 	}, nil
 }
 
@@ -130,7 +128,7 @@ func (p *PostgresRepository) SaveURL(ctx context.Context, shortID, originalURL, 
 	return shortID, false, nil
 }
 
-func (p *PostgresRepository) GetUserURLs(ctx context.Context, userID string) ([]models.UserURL, error) {
+func (p *PostgresRepository) GetUserURLs(ctx context.Context, userID string) ([]domain.UserURL, error) {
 	query, args, err := p.sb.
 		Select("short_id", "original_url").
 		From("urls").
@@ -150,15 +148,14 @@ func (p *PostgresRepository) GetUserURLs(ctx context.Context, userID string) ([]
 	}
 	defer rows.Close()
 
-	var userURLs []models.UserURL
+	var userURLs []domain.UserURL
 	for rows.Next() {
 		var shortID, originalURL string
 		if err := rows.Scan(&shortID, &originalURL); err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
-		shortURL := fmt.Sprintf("%s/%s", p.baseURL, shortID)
-		userURLs = append(userURLs, models.UserURL{
-			ShortURL:    shortURL,
+		userURLs = append(userURLs, domain.UserURL{
+			ShortURL:    shortID,
 			OriginalURL: originalURL,
 		})
 	}
@@ -232,7 +229,7 @@ func (p *PostgresRepository) Close() error {
 	return nil
 }
 
-func (p *PostgresRepository) ProcessURLBatch(ctx context.Context, batch []BatchItem) (map[string]string, error) {
+func (p *PostgresRepository) ProcessURLBatch(ctx context.Context, batch []domain.BatchItem) (map[string]string, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
@@ -250,7 +247,7 @@ func (p *PostgresRepository) ProcessURLBatch(ctx context.Context, batch []BatchI
 	}
 
 	result := make(map[string]string)
-	urlsToInsert := make([]BatchItem, 0)
+	urlsToInsert := make([]domain.BatchItem, 0)
 
 	for _, item := range batch {
 		if shortID, exists := existingURLs[item.OriginalURL]; exists {
@@ -310,7 +307,7 @@ func (p *PostgresRepository) getExistingURLsInTransaction(ctx context.Context, t
 	return existing, nil
 }
 
-func (p *PostgresRepository) insertURLsInTransaction(ctx context.Context, tx pgx.Tx, urls []BatchItem) error {
+func (p *PostgresRepository) insertURLsInTransaction(ctx context.Context, tx pgx.Tx, urls []domain.BatchItem) error {
 	if len(urls) == 0 {
 		return nil
 	}
@@ -360,9 +357,9 @@ func (p *PostgresRepository) DeleteUserURLs(ctx context.Context, userID string, 
 	return nil
 }
 
-func (p *PostgresRepository) GetURLsByShortIDs(ctx context.Context, shortIDs []string) (map[string]models.Storage, error) {
+func (p *PostgresRepository) GetURLsByShortIDs(ctx context.Context, shortIDs []string) (map[string]domain.Storage, error) {
 	if len(shortIDs) == 0 {
-		return make(map[string]models.Storage), nil
+		return make(map[string]domain.Storage), nil
 	}
 
 	query, args, err := p.sb.
@@ -380,9 +377,9 @@ func (p *PostgresRepository) GetURLsByShortIDs(ctx context.Context, shortIDs []s
 	}
 	defer rows.Close()
 
-	result := make(map[string]models.Storage)
+	result := make(map[string]domain.Storage)
 	for rows.Next() {
-		var storage models.Storage
+		var storage domain.Storage
 		err := rows.Scan(&storage.ShortURL, &storage.UserID, &storage.OriginalURL, &storage.IsDeleted)
 		if err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
@@ -395,10 +392,4 @@ func (p *PostgresRepository) GetURLsByShortIDs(ctx context.Context, shortIDs []s
 	}
 
 	return result, nil
-}
-
-type BatchItem struct {
-	ShortID     string
-	OriginalURL string
-	UserID      string
 }

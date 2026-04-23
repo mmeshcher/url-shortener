@@ -14,9 +14,11 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mmeshcher/url-shortener/internal/audit"
+	"github.com/mmeshcher/url-shortener/internal/cert"
 	"github.com/mmeshcher/url-shortener/internal/config"
 	"github.com/mmeshcher/url-shortener/internal/handler"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
+	"github.com/mmeshcher/url-shortener/internal/repository"
 	"github.com/mmeshcher/url-shortener/internal/service"
 )
 
@@ -71,7 +73,20 @@ func main() {
 
 	authMiddleware := middleware.NewAuthMiddleware(cfg.SecretKey, logger)
 
-	shortnerService := service.NewShortenerService(cfg.BaseURL, cfg.FileStoragePath, logger, cfg.DatabaseDSN)
+	var repo repository.URLRepository
+	if cfg.DatabaseDSN != "" {
+		pgRepo, err := repository.NewPostgresRepository(cfg.DatabaseDSN)
+		if err != nil {
+			sugar.Errorw("Failed to connect to PostgreSQL, using file storage", "error", err)
+			repo = repository.NewMemoryRepository(cfg.FileStoragePath, logger)
+		} else {
+			repo = pgRepo
+		}
+	} else {
+		repo = repository.NewMemoryRepository(cfg.FileStoragePath, logger)
+	}
+
+	shortnerService := service.NewShortenerService(cfg.BaseURL, repo, logger)
 
 	defer shortnerService.Close()
 
@@ -88,20 +103,38 @@ func main() {
 		sugar.Infow(
 			"Server starting",
 			"address", cfg.ServerAddress,
+			"https", cfg.EnableHTTPS,
 		)
 
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			sugar.Fatalw("Server failed",
-				"error", err.Error())
+		if cfg.EnableHTTPS {
+			certFile := "server.crt"
+			keyFile := "server.key"
+
+			// Check if certificate files exist, if not generate them
+			if _, err := os.Stat(certFile); os.IsNotExist(err) {
+				if err := cert.GenerateSelfSignedCert(certFile, keyFile); err != nil {
+					sugar.Fatalw("Failed to generate self-signed certificate", "error", err)
+				}
+				sugar.Infow("Self-signed certificate generated", "cert", certFile, "key", keyFile)
+			}
+
+			if err := server.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+				sugar.Fatalw("HTTPS server failed", "error", err.Error())
+			}
+		} else {
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				sugar.Fatalw("HTTP server failed", "error", err.Error())
+			}
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	<-quit
 
 	sugar.Info("Shutting down server...")
 
+	// Gracefully shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -110,6 +143,7 @@ func main() {
 			"error", err.Error())
 	}
 
+	// Service.Close() is called via defer at the beginning of main()
 	sugar.Info("Server stopped")
 }
 
