@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	ServerAddress   string `env:"SERVER_ADDRESS" json:"server_address"`
+	GRPCAddress     string `env:"GRPC_ADDRESS" json:"grpc_address"`
 	BaseURL         string `env:"BASE_URL" json:"base_url"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH" json:"file_storage_path"`
 	DatabaseDSN     string `env:"DATABASE_DSN" json:"database_dsn"`
@@ -29,14 +30,12 @@ func ParseFlags() (*Config, error) {
 	flag.StringVar(&configPath, "c", "", "Path to configuration file")
 	flag.StringVar(&configPath, "config", "", "Path to configuration file")
 
-	if err := env.Parse(cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse environment variables: %w", err)
-	}
-	if cfg.ConfigPath != "" && configPath == "" {
-		configPath = cfg.ConfigPath
+	if envPath := os.Getenv("CONFIG"); envPath != "" && configPath == "" {
+		configPath = envPath
 	}
 
 	fServerAddress := flag.String("a", "", "Address of the server")
+	fGRPCAddress := flag.String("g", "", "Address of the gRPC server")
 	fBaseURL := flag.String("b", "", "Base URL for short URLs")
 	fFileStoragePath := flag.String("file-storage-path", "", "Path to file storage")
 	fDatabaseDSN := flag.String("d", "", "Database connection string")
@@ -58,6 +57,9 @@ func ParseFlags() (*Config, error) {
 
 	if *fServerAddress != "" {
 		cfg.ServerAddress = *fServerAddress
+	}
+	if *fGRPCAddress != "" {
+		cfg.GRPCAddress = *fGRPCAddress
 	}
 	if *fBaseURL != "" {
 		cfg.BaseURL = *fBaseURL
@@ -84,6 +86,11 @@ func ParseFlags() (*Config, error) {
 		cfg.TrustedSubnet = *fTrustedSubnet
 	}
 
+	// Environment variables override everything (based on existing tests)
+	if err := env.Parse(cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse environment variables: %w", err)
+	}
+
 	cfg.applyDefaultValues()
 
 	return cfg, nil
@@ -104,6 +111,9 @@ func loadConfigFromJSON(path string) (*Config, error) {
 func (c *Config) mergeJSON(other *Config) {
 	if c.ServerAddress == "" {
 		c.ServerAddress = other.ServerAddress
+	}
+	if c.GRPCAddress == "" {
+		c.GRPCAddress = other.GRPCAddress
 	}
 	if c.BaseURL == "" {
 		c.BaseURL = other.BaseURL
@@ -136,6 +146,10 @@ func (c *Config) applyDefaultValues() {
 		c.ServerAddress = getDefaultServerAddress()
 	}
 
+	if c.GRPCAddress == "" {
+		c.GRPCAddress = getDefaultGRPCAddress()
+	}
+
 	if c.BaseURL == "" {
 		c.BaseURL = getDefaultBaseURL()
 	}
@@ -147,6 +161,10 @@ func (c *Config) applyDefaultValues() {
 
 func getDefaultServerAddress() string {
 	return "localhost:8080"
+}
+
+func getDefaultGRPCAddress() string {
+	return "localhost:3200"
 }
 
 func getDefaultBaseURL() string {

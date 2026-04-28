@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,10 +13,12 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 
 	"github.com/mmeshcher/url-shortener/internal/audit"
 	"github.com/mmeshcher/url-shortener/internal/cert"
 	"github.com/mmeshcher/url-shortener/internal/config"
+	internalgrpc "github.com/mmeshcher/url-shortener/internal/grpc"
 	"github.com/mmeshcher/url-shortener/internal/handler"
 	"github.com/mmeshcher/url-shortener/internal/middleware"
 	"github.com/mmeshcher/url-shortener/internal/repository"
@@ -100,9 +103,12 @@ func main() {
 		Handler: r,
 	}
 
+	// Initialize gRPC server
+	grpcServer := internalgrpc.NewShortenerServer(shortnerService, logger)
+
 	go func() {
 		sugar.Infow(
-			"Server starting",
+			"HTTP Server starting",
 			"address", cfg.ServerAddress,
 			"https", cfg.EnableHTTPS,
 		)
@@ -129,23 +135,51 @@ func main() {
 		}
 	}()
 
+	var gSrv *grpc.Server
+	go func() {
+		sugar.Infow(
+			"gRPC Server starting",
+			"address", cfg.GRPCAddress,
+		)
+
+		listen, err := net.Listen("tcp", cfg.GRPCAddress)
+		if err != nil {
+			sugar.Fatalw("Failed to listen for gRPC", "error", err)
+		}
+
+		gSrv = grpc.NewServer(
+			grpc.UnaryInterceptor(internalgrpc.AuthInterceptor(authMiddleware, logger)),
+		)
+		internalgrpc.RegisterShortenerServer(gSrv, grpcServer)
+
+		if err := gSrv.Serve(listen); err != nil {
+			sugar.Errorw("gRPC server failed", "error", err)
+		}
+	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	<-quit
 
-	sugar.Info("Shutting down server...")
+	sugar.Info("Shutting down servers...")
 
 	// Gracefully shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		sugar.Errorw("Server shutdown failed",
+		sugar.Errorw("HTTP Server shutdown failed",
 			"error", err.Error())
 	}
 
+	// Gracefully shutdown gRPC server
+	if gSrv != nil {
+		gSrv.GracefulStop()
+		sugar.Info("gRPC Server stopped")
+	}
+
 	// Service.Close() is called via defer at the beginning of main()
-	sugar.Info("Server stopped")
+	sugar.Info("All servers stopped")
 }
 
 func getBuildValue(v string) string {
