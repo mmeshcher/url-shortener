@@ -361,14 +361,9 @@ func (p *PostgresRepository) GetStats(ctx context.Context) (int, int, error) {
 	var urlsCount int
 	var usersCount int
 
-	err := p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM urls").Scan(&urlsCount)
+	err := p.pool.QueryRow(ctx, "SELECT COUNT(*), COUNT(DISTINCT user_id) FROM urls").Scan(&urlsCount, &usersCount)
 	if err != nil {
-		return 0, 0, fmt.Errorf("count URLs: %w", err)
-	}
-
-	err = p.pool.QueryRow(ctx, "SELECT COUNT(DISTINCT user_id) FROM urls").Scan(&usersCount)
-	if err != nil {
-		return 0, 0, fmt.Errorf("count users: %w", err)
+		return 0, 0, fmt.Errorf("get stats: %w", err)
 	}
 
 	return urlsCount, usersCount, nil

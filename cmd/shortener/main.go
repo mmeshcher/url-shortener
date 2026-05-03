@@ -135,7 +135,11 @@ func main() {
 		}
 	}()
 
-	var gSrv *grpc.Server
+	gSrv := grpc.NewServer(
+		grpc.UnaryInterceptor(internalgrpc.AuthInterceptor(authMiddleware, logger)),
+	)
+	internalgrpc.RegisterShortenerServer(gSrv, grpcServer)
+
 	go func() {
 		sugar.Infow(
 			"gRPC Server starting",
@@ -146,11 +150,6 @@ func main() {
 		if err != nil {
 			sugar.Fatalw("Failed to listen for gRPC", "error", err)
 		}
-
-		gSrv = grpc.NewServer(
-			grpc.UnaryInterceptor(internalgrpc.AuthInterceptor(authMiddleware, logger)),
-		)
-		internalgrpc.RegisterShortenerServer(gSrv, grpcServer)
 
 		if err := gSrv.Serve(listen); err != nil {
 			sugar.Errorw("gRPC server failed", "error", err)

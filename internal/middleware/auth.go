@@ -135,8 +135,8 @@ func GetUserIDFromContext(ctx context.Context) (string, bool) {
 	return userID, ok
 }
 
-func UserIDKey() contextKey {
-	return userIDKey
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
 }
 
 func (a *AuthMiddleware) ParseToken(token string) (string, bool) {

@@ -110,7 +110,7 @@ func AuthInterceptor(auth *middleware.AuthMiddleware, logger *zap.Logger) grpc.U
 			userID = auth.CreateNewUserID()
 		}
 
-		ctx = context.WithValue(ctx, middleware.UserIDKey(), userID)
+		ctx = middleware.WithUserID(ctx, userID)
 		return handler(ctx, req)
 	}
 }
