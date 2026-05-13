@@ -136,7 +136,7 @@ func TestDeleteUserURLsHandler(t *testing.T) {
 				}
 			}
 
-			h := NewHandler(s, logger, authMiddleware, auditor)
+			h := NewHandler(s, logger, authMiddleware, auditor, nil)
 			router := h.SetupRouter()
 
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))

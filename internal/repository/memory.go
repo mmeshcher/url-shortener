@@ -172,6 +172,16 @@ func (m *MemoryRepository) DeleteUserURLs(ctx context.Context, userID string, sh
 	return nil
 }
 
+func (m *MemoryRepository) GetStats(ctx context.Context) (int, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	urlsCount := len(m.data)
+	usersCount := len(m.userData)
+
+	return urlsCount, usersCount, nil
+}
+
 func (m *MemoryRepository) Ping(ctx context.Context) error {
 	return nil
 }

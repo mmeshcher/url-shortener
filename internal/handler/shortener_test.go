@@ -123,7 +123,7 @@ func TestShortenHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := repository.NewMemoryRepository("", logger)
 			s := service.NewShortenerService("http://localhost:8080", repo, logger)
-			h := NewHandler(s, logger, authMiddleware, auditor)
+			h := NewHandler(s, logger, authMiddleware, auditor, nil)
 			router := h.SetupRouter()
 
 			testCookie := createTestCookie(tt.userID)
@@ -187,7 +187,7 @@ func BenchmarkShortenHandler(b *testing.B) {
 	auditor := audit.NewAuditor()
 	repo := repository.NewMemoryRepository("", logger)
 	s := service.NewShortenerService("http://localhost:8080", repo, logger)
-	h := NewHandler(s, logger, authMiddleware, auditor)
+	h := NewHandler(s, logger, authMiddleware, auditor, nil)
 	router := h.SetupRouter()
 
 	mac := hmac.New(sha256.New, []byte("test-secret-key"))

@@ -42,6 +42,10 @@ func (h *Handler) SetupRouter() *chi.Mux {
 				r.Get("/urls", h.GetUserURLsHandler)
 				r.Delete("/urls", h.DeleteUserURLsHandler)
 			})
+			r.Route("/internal", func(r chi.Router) {
+				r.Use(h.ipControlMiddleware.Middleware)
+				r.Get("/stats", h.StatsHandler)
+			})
 		})
 	})
 

@@ -23,7 +23,7 @@ func ExampleHandler_ShortenHandler() {
 	authMiddleware := middleware.NewAuthMiddleware("secret-key", logger)
 	repo := repository.NewMemoryRepository("", logger)
 	shortenerService := service.NewShortenerService("http://localhost:8080", repo, logger)
-	h := handler.NewHandler(shortenerService, logger, authMiddleware, auditor)
+	h := handler.NewHandler(shortenerService, logger, authMiddleware, auditor, nil)
 	router := h.SetupRouter()
 
 	// Create request
@@ -55,7 +55,7 @@ func ExampleHandler_ShortenJSONHandler() {
 	authMiddleware := middleware.NewAuthMiddleware("secret-key", logger)
 	repo := repository.NewMemoryRepository("", logger)
 	shortenerService := service.NewShortenerService("http://localhost:8080", repo, logger)
-	h := handler.NewHandler(shortenerService, logger, authMiddleware, auditor)
+	h := handler.NewHandler(shortenerService, logger, authMiddleware, auditor, nil)
 	router := h.SetupRouter()
 
 	// Create JSON request
@@ -86,7 +86,7 @@ func ExampleHandler_PingHandler() {
 	authMiddleware := middleware.NewAuthMiddleware("secret-key", logger)
 	repo := repository.NewMemoryRepository("", logger)
 	shortenerService := service.NewShortenerService("http://localhost:8080", repo, logger)
-	h := handler.NewHandler(shortenerService, logger, authMiddleware, auditor)
+	h := handler.NewHandler(shortenerService, logger, authMiddleware, auditor, nil)
 	router := h.SetupRouter()
 
 	// Create request

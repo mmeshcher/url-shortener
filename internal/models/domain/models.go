@@ -58,3 +58,9 @@ type UserURLsResponse []UserURL
 
 // DeleteRequest is a list of short URL IDs to be marked as deleted.
 type DeleteRequest []string
+
+// StatsResponse represents the system statistics.
+type StatsResponse struct {
+	URLs  int `json:"urls"`  // Number of shortened URLs in the system.
+	Users int `json:"users"` // Number of users in the system.
+}
