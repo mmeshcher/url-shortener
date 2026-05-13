@@ -134,3 +134,19 @@ func GetUserIDFromContext(ctx context.Context) (string, bool) {
 	userID, ok := ctx.Value(userIDKey).(string)
 	return userID, ok
 }
+
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
+}
+
+func (a *AuthMiddleware) ParseToken(token string) (string, bool) {
+	return a.parseCookie(token)
+}
+
+func (a *AuthMiddleware) CreateNewUserID() string {
+	return uuid.New().String()
+}
+
+func (a *AuthMiddleware) SignUserID(userID string) string {
+	return a.signUserID(userID)
+}
